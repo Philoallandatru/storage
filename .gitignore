@@ -29,6 +29,7 @@ env-*
 .coverage
 htmlcov/
 *.html
+vdb_benchmark/vdbbench/benchmark/results/*
 
 # OS files
 .DS_Store
