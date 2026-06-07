@@ -74,6 +74,13 @@ sweep_logs/
 sweep_flux_master.log
 results/
 
+# Local benchmark datasets and generated storage profiles
+datasets/
+kv_cache_benchmark/fio_traced_*.ini
+kv_cache_benchmark/fio_*.ini
+*.bpftrace.txt
+*bpftrace*.txt
+
 # Test scripts and helpers not part of the benchmark suite
 test_s3dlio_gen_direct.py
 
