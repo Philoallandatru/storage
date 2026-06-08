@@ -45,11 +45,25 @@ iostat -dx -m 1 > "${LOG_DIR}/iostat.log" 2>&1 &
 IOSTAT_PID=$!
 pidstat -d -r -s -u 1 > "${LOG_DIR}/pidstat.log" 2>&1 &
 PIDSTAT_PID=$!
-sudo -n perf stat -e cache-misses,cache-references,cs,migrations,page-faults \
-    sleep "${DURATION}" > "${LOG_DIR}/perf.log" 2>&1 &
-PERF_PID=$!
 
-echo "Started L1 device profilers: iostat=$IOSTAT_PID pidstat=$PIDSTAT_PID perf=$PERF_PID"
+# perf stat 在 -a (system-wide) 模式需要 sudo。当前环境的 NOPASSWD 不一定可用,
+# 所以这里做成可选: 能跑就跑, 不能跑就退化为空日志但不让脚本崩。
+PERF_PID=""
+if command -v perf >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo -n perf stat -e cache-misses,cache-references,cs,migrations,page-faults \
+        sleep "${DURATION}" > "${LOG_DIR}/perf.log" 2>&1 &
+    PERF_PID=$!
+    echo "perf (sudo): enabled"
+elif command -v perf >/dev/null 2>&1; then
+    perf stat -e cache-misses,cache-references,cs,migrations,page-faults \
+        sleep "${DURATION}" > "${LOG_DIR}/perf.log" 2>&1 &
+    PERF_PID=$!
+    echo "perf (no sudo, per-process only): enabled"
+else
+    echo "perf not installed: skipping"
+fi
+
+echo "Started L1 device profilers: iostat=$IOSTAT_PID pidstat=$PIDSTAT_PID perf=${PERF_PID:-skipped}"
 
 # ── 检测 bpftrace 可用 ──
 BPFTRACE_AVAILABLE=0
@@ -59,7 +73,8 @@ fi
 
 cleanup() {
     echo "[cleanup] killing background profilers"
-    kill $IOSTAT_PID $PIDSTAT_PID $PERF_PID 2>/dev/null || true
+    kill $IOSTAT_PID $PIDSTAT_PID 2>/dev/null || true
+    [ -n "$PERF_PID" ] && kill $PERF_PID 2>/dev/null || true
     # 不杀 bpftrace — 跑完 benchmark 后由 benchmark 自己发 SIGINT
     rm -rf "${CACHE_DIR}" 2>/dev/null || true
 }

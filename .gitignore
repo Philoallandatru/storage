@@ -122,3 +122,11 @@ hydra_log/
 sweep_unet3d_*.log
 sweep_dlrm_*.log
 sweep_flux_*.log
+
+# storage_latency_stack.sh --fio writes a "RC=0" sentinel to CWD
+RC=0
+RC=*
+# Local Hermes agent plans (private working notes)
+/.hermes/
+# run_full_profiling.sh produces long per-RUN profiling/ subdirs we don't ship
+results/kvcache-profile/profiling/test_*/
