@@ -1,0 +1,4 @@
+file,total_ios,read_ios,write_ios,d2c_read_p50_us,d2c_read_p99_us,d2c_write_p50_us,d2c_write_p99_us,rwmixread,iodepth,bssplit
+fio_sharegpt_8b_tp8_cpu0p5g_users2_300s_profile_20260608_014520.ini,171477,103953,67524,16,128,64,4096,61,1024,"4k/2:8k/1:16k/12:32k/16:64k/8:128k/62,4k/10:8k/1:16k/1:32k/2:64k/3:128k/82"
+fio_burstgpt_8b_tp8_cpu0g_users2_300s_speedup1000_profile_20260608_070000.ini,5856651,5343650,513001,64,256,1024,4096,91,524288,"4k/1:8k/1:16k/2:32k/3:64k/2:128k/92,4k/3:8k/1:16k/1:32k/1:64k/1:128k/94"
+fio_tp8_cpu0p5g_300s_profile_20260607_183517.ini,3721093,2707907,1013186,16,256,2048,8192,73,1048576,"4k/1:8k/1:16k/1:32k/1:64k/1:128k/99,4k/1:8k/1:16k/1:32k/1:64k/1:128k/99"
