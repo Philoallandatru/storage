@@ -92,6 +92,11 @@ results/kvcache-profile/**
 !results/kvcache-profile/io_pattern_*.md
 !results/kvcache-profile/io_pattern_*.png
 !results/kvcache-profile/iostat_summary_*.csv
+# fio iodepth sweep artifacts (P0 #3 of KV-Cache AI SSD pre-study)
+!results/kvcache-profile/fio_sweep/
+!results/kvcache-profile/fio_sweep/sweep_summary.csv
+!results/kvcache-profile/fio_sweep/sweep_analysis.md
+!results/kvcache-profile/fio_sweep/sweep_curves.png
 
 # Local benchmark datasets and generated storage profiles
 datasets/
