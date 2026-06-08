@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="460" viewBox="0 0 920 460">
+<rect width="100%" height="100%" fill="#fbfaf7"/>
+<text x="460.0" y="30" text-anchor="middle" font-family="Georgia,serif" font-size="22" fill="#1d2b2a">P95 Latency Breakdown</text>
+<text x="146" y="86.75" text-anchor="end" font-family="Arial,sans-serif" font-size="14" fill="#263331">End-to-end</text>
+<rect x="160" y="66.0" width="710.0" height="20.75" fill="#8f4f2f" rx="3"/>
+<text x="878.0" y="80.525" font-family="Arial,sans-serif" font-size="12" fill="#263331">total 104845.2 ms</text>
+<text x="146" y="153.15" text-anchor="end" font-family="Arial,sans-serif" font-size="14" fill="#263331">Per-request storage</text>
+<rect x="160" y="132.4" width="133.0" height="20.75" fill="#b66d38" rx="3"/>
+<text x="300.9691125619535" y="146.925" font-family="Arial,sans-serif" font-size="12" fill="#263331">total 19635.5 ms</text>
+<text x="146" y="219.55" text-anchor="end" font-family="Arial,sans-serif" font-size="14" fill="#263331">Storage read</text>
+<rect x="160" y="198.8" width="21.4" height="20.75" fill="#2f6f73" rx="3"/>
+<text x="189.4498457143277" y="213.32500000000002" font-family="Arial,sans-serif" font-size="12" fill="#263331">device 3167.5 ms</text>
+<rect x="160" y="225.55" width="5.0" height="20.75" fill="#6b9a8f" rx="3"/>
+<text x="173.04156845185767" y="240.07500000000002" font-family="Arial,sans-serif" font-size="12" fill="#263331">host 744.5 ms</text>
+<text x="146" y="285.95000000000005" text-anchor="end" font-family="Arial,sans-serif" font-size="14" fill="#263331">Storage write</text>
+<rect x="160" y="265.20000000000005" width="6.3" height="20.75" fill="#2f6f73" rx="3"/>
+<text x="174.2619027950211" y="279.725" font-family="Arial,sans-serif" font-size="12" fill="#263331">device 924.7 ms</text>
+<rect x="160" y="291.95000000000005" width="5.5" height="20.75" fill="#6b9a8f" rx="3"/>
+<text x="173.4644445984288" y="306.475" font-family="Arial,sans-serif" font-size="12" fill="#263331">host 806.9 ms</text>
+<text x="146" y="352.35" text-anchor="end" font-family="Arial,sans-serif" font-size="14" fill="#263331">CPU tier</text>
+<rect x="160" y="331.6" width="2.3" height="20.75" fill="#4f6d8f" rx="3"/>
+<text x="170.3187225428908" y="346.125" font-family="Arial,sans-serif" font-size="12" fill="#263331">read 342.4 ms</text>
+<rect x="160" y="358.35" width="3.5" height="20.75" fill="#8097b5" rx="3"/>
+<text x="171.5382672956007" y="372.875" font-family="Arial,sans-serif" font-size="12" fill="#263331">write 522.5 ms</text>
+</svg>

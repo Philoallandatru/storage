@@ -19,6 +19,17 @@ Current baseline conclusions:
 - BurstGPT `llama3.1-8b`, TP8, CPU cache 0GB, `--trace-speedup 1000`, 300s: PASS through `users=8`; SSD utilization is meaningful but not saturated.
 - BurstGPT `llama3.1-70b-instruct`, TP8, CPU cache 0GB, `users=2`, 300s: PASS. This is the first larger-model validation point and should be expanded.
 
+### Related artifacts
+
+The artifacts below are published alongside this report in the repository. They are intentionally tracked even though most of `results/` is `.gitignore`-d:
+
+| Artifact | Why it is tracked |
+|---|---|
+| [`docs/kvcache-io-profiling-visual-analysis-2026-06-08.md`](../kvcache-io-profiling-visual-analysis-2026-06-08.md) and `docs/assets/kvcache-io-profiling/*` | Final I/O profiling report + 5 charts (PNG/SVG) + 3 distilled CSVs. This is the post-burstgpt view. |
+| [`../results/kvcache-profile/report/kvcache_ai_ssd_baseline_report.pdf`](../results/kvcache-profile/report/kvcache_ai_ssd_baseline_report.pdf) (and `.html`, `.md`) | Early-stage baseline at `users=10`, generated 2026-06-07 15:39. This run **failed** (`Storage I/O P95 ≈ 19.6 s`, `read device P95 ≈ 3.2 s`, only 1/4 criteria passed) and motivated the TP + concurrency rework that led to the stable `users=2` baseline above. Useful as a historical reference; superseded by the current report. |
+| [`../results/kvcache-profile/report/`](../results/kvcache-profile/report/) (PNG/SVG/CSV charts from that early baseline) | Companion charts for the early `users=10` baseline report. |
+| [`../results/kvcache-profile/visualizations/kvcache_io_profile_visual_summary.xlsx`](../results/kvcache-profile/visualizations/kvcache_io_profile_visual_summary.xlsx) | Companion Excel with the visual-analysis charts in a single workbook. |
+
 ## Why KV Cache Stresses Storage
 
 LLM inference stores attention state in the KV cache. The cache grows with sequence length. A request with more context tokens writes a larger KV object; decode then repeatedly reads that object while generating output tokens.

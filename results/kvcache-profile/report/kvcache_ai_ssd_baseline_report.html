@@ -1,0 +1,497 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>KV Cache AI SSD Baseline Report</title>
+<style>
+@page { size: A4; margin: 16mm 14mm; }
+body { font-family: "DejaVu Sans", Arial, sans-serif; color: #1f2a28; line-height: 1.45; font-size: 11px; }
+h1, h2, h3 { font-family: Georgia, "Times New Roman", serif; color: #173531; break-after: avoid; }
+h1 { font-size: 26px; border-bottom: 2px solid #2f6f73; padding-bottom: 8px; }
+h2 { font-size: 18px; margin-top: 24px; border-bottom: 1px solid #c7d2cc; padding-bottom: 4px; }
+h3 { font-size: 14px; }
+table { border-collapse: collapse; width: 100%; margin: 10px 0 16px; font-size: 9.5px; page-break-inside: avoid; }
+th, td { border: 1px solid #bcc8c2; padding: 5px 6px; vertical-align: top; }
+th { background: #e8efec; font-weight: 700; }
+tr:nth-child(even) td { background: #f7f9f8; }
+pre { background: #f3f0e8; border: 1px solid #d7d0c2; border-radius: 5px; padding: 9px; white-space: pre-wrap; word-break: break-word; font-size: 8.5px; page-break-inside: avoid; }
+code { font-family: "DejaVu Sans Mono", Consolas, monospace; font-size: 0.92em; }
+p { margin: 8px 0; }
+ul { padding-left: 20px; }
+img { max-width: 100%; display: block; margin: 12px auto 18px; page-break-inside: avoid; }
+a { color: #245f67; text-decoration: none; }
+blockquote { border-left: 4px solid #91aaa2; padding-left: 10px; color: #4f5f5b; }
+</style>
+</head>
+<body>
+<h1 id="kv-cache-ai-ssd-baseline-report">KV Cache AI SSD Baseline Report</h1>
+<p>Generated: 2026-06-07 15:19:19</p>
+<h2 id="test-command">Test Command</h2>
+<pre><code class="language-bash">cd /home/ficus/llm/storage/kv_cache_benchmark
+
+python3 kv-cache.py \
+  --config config.yaml \
+  --model llama3.1-8b \
+  --num-users 10 \
+  --duration 120 \
+  --gpu-mem-gb 0 \
+  --cpu-mem-gb 2 \
+  --max-concurrent-allocs 4 \
+  --generation-mode none \
+  --cache-dir /home/ficus/llm/storage/results/kvcache-profile/kv-cache-dir \
+  --seed 42 \
+  --output /home/ficus/llm/storage/results/kvcache-profile/test_8b_10users_profiled.json \
+  --xlsx-output /home/ficus/llm/storage/results/kvcache-profile/test_8b_10users_profiled.xlsx
+</code></pre>
+<p>A standalone bpftrace session was run in parallel with:</p>
+<pre><code class="language-bash">sudo ./utils/storage_latency_stack.sh python3 --fio
+</code></pre>
+<h2 id="test-configuration">Test Configuration</h2>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th style="text-align: right;">Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Model</td>
+<td style="text-align: right;">Llama 3.1 8B</td>
+</tr>
+<tr>
+<td>Users</td>
+<td style="text-align: right;">10</td>
+</tr>
+<tr>
+<td>Duration</td>
+<td style="text-align: right;">120 s</td>
+</tr>
+<tr>
+<td>GPU cache tier</td>
+<td style="text-align: right;">0 GiB</td>
+</tr>
+<tr>
+<td>CPU cache tier</td>
+<td style="text-align: right;">2 GiB</td>
+</tr>
+<tr>
+<td>Max concurrent allocations</td>
+<td style="text-align: right;">4</td>
+</tr>
+<tr>
+<td>Generation mode</td>
+<td style="text-align: right;">none, pure storage I/O</td>
+</tr>
+<tr>
+<td>Seed</td>
+<td style="text-align: right;">42</td>
+</tr>
+<tr>
+<td>Cache directory</td>
+<td style="text-align: right;"><code>/home/ficus/llm/storage/results/kvcache-profile/kv-cache-dir</code></td>
+</tr>
+<tr>
+<td>Result JSON</td>
+<td style="text-align: right;"><code>/home/ficus/llm/storage/results/kvcache-profile/test_8b_10users_profiled.json</code></td>
+</tr>
+<tr>
+<td>bpftrace output</td>
+<td style="text-align: right;"><code>/home/ficus/llm/storage/results/kvcache-profile/bpftrace_8b_10users.txt</code></td>
+</tr>
+<tr>
+<td>fio workload</td>
+<td style="text-align: right;"><code>/home/ficus/llm/storage/kv_cache_benchmark/fio_traced_20260607_150153.ini</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="command-output-summary">Command Output Summary</h2>
+<p>The benchmark reported the memory safety check as OK:</p>
+<pre><code class="language-text">Formula: peak = (workers x 2 x mean_entry_bytes) + baseline
+       = (10 x 2 x 1000MiB) + 2.5GiB
+       = 22.0GiB
+Available RAM: 26.0GiB
+Safe concurrent readers: ~12
+Status: OK
+</code></pre>
+<p>KV cache block sizing from the command output:</p>
+<table>
+<thead>
+<tr>
+<th>Block Metric</th>
+<th style="text-align: right;">Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>KV bytes/token</td>
+<td style="text-align: right;">131,072 bytes, 128.0 KiB</td>
+</tr>
+<tr>
+<td>Entries in cache</td>
+<td style="text-align: right;">126</td>
+</tr>
+<tr>
+<td>Block size min</td>
+<td style="text-align: right;">80.6 MiB</td>
+</tr>
+<tr>
+<td>Block size mean</td>
+<td style="text-align: right;">845.2 MiB</td>
+</tr>
+<tr>
+<td>Block size P95</td>
+<td style="text-align: right;">1822.1 MiB</td>
+</tr>
+<tr>
+<td>Block size max</td>
+<td style="text-align: right;">2048.8 MiB</td>
+</tr>
+</tbody>
+</table>
+<p>Storage assessment from the command output: <strong>FAIL</strong>, criteria passed 1/4.</p>
+<table>
+<thead>
+<tr>
+<th>Criterion</th>
+<th style="text-align: right;">Actual</th>
+<th style="text-align: right;">Target</th>
+<th>Pass</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Storage Tier Write Device P95 &lt; 500ms</td>
+<td style="text-align: right;">924.691 ms</td>
+<td style="text-align: right;">500 ms</td>
+<td>no</td>
+</tr>
+<tr>
+<td>Storage Tier Read Device P95 &lt; 200ms</td>
+<td style="text-align: right;">3167.484 ms</td>
+<td style="text-align: right;">200 ms</td>
+<td>no</td>
+</tr>
+<tr>
+<td>CPU RAM P95 &lt; 150ms</td>
+<td style="text-align: right;">373.995 ms</td>
+<td style="text-align: right;">150 ms</td>
+<td>no</td>
+</tr>
+<tr>
+<td>Cache Hit Rate &gt; 30%</td>
+<td style="text-align: right;">0.728 ratio</td>
+<td style="text-align: right;">0.3 ratio</td>
+<td>yes</td>
+</tr>
+</tbody>
+</table>
+<h2 id="benchmark-results">Benchmark Results</h2>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th style="text-align: right;">Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Requests completed</td>
+<td style="text-align: right;">125</td>
+</tr>
+<tr>
+<td>Total tokens generated</td>
+<td style="text-align: right;">26114</td>
+</tr>
+<tr>
+<td>Wall-clock throughput</td>
+<td style="text-align: right;">217.62 tokens/s</td>
+</tr>
+<tr>
+<td>Storage I/O throughput</td>
+<td style="text-align: right;">31.90 tokens/s</td>
+</tr>
+<tr>
+<td>Requests/sec</td>
+<td style="text-align: right;">1.04</td>
+</tr>
+<tr>
+<td>End-to-end P50</td>
+<td style="text-align: right;">33324.03 ms</td>
+</tr>
+<tr>
+<td>End-to-end P95</td>
+<td style="text-align: right;">104845.21 ms</td>
+</tr>
+<tr>
+<td>End-to-end P99</td>
+<td style="text-align: right;">112363.54 ms</td>
+</tr>
+<tr>
+<td>Per-request storage P50</td>
+<td style="text-align: right;">3125.27 ms</td>
+</tr>
+<tr>
+<td>Per-request storage P95</td>
+<td style="text-align: right;">19635.46 ms</td>
+</tr>
+<tr>
+<td>Per-request storage P99</td>
+<td style="text-align: right;">29052.64 ms</td>
+</tr>
+<tr>
+<td>Cache hit rate</td>
+<td style="text-align: right;">72.8%</td>
+</tr>
+<tr>
+<td>Total read</td>
+<td style="text-align: right;">774.94 GiB</td>
+</tr>
+<tr>
+<td>Total write</td>
+<td style="text-align: right;">104.00 GiB</td>
+</tr>
+<tr>
+<td>Read/write ratio</td>
+<td style="text-align: right;">7.45:1</td>
+</tr>
+<tr>
+<td>GPU entries</td>
+<td style="text-align: right;">0</td>
+</tr>
+<tr>
+<td>CPU entries</td>
+<td style="text-align: right;">3</td>
+</tr>
+<tr>
+<td>Storage entries</td>
+<td style="text-align: right;">123</td>
+</tr>
+</tbody>
+</table>
+<p><img alt="Throughput and I/O volume" src="throughput_and_volume.svg" /></p>
+<p><img alt="P95 latency breakdown" src="latency_breakdown.svg" /></p>
+<h2 id="tier-latency-breakdown">Tier Latency Breakdown</h2>
+<table>
+<thead>
+<tr>
+<th>Tier / Operation</th>
+<th style="text-align: right;">P95 Total</th>
+<th style="text-align: right;">P95 Device</th>
+<th style="text-align: right;">P95 Host / Serialization</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Storage read</td>
+<td style="text-align: right;">3936.28 ms</td>
+<td style="text-align: right;">3167.48 ms</td>
+<td style="text-align: right;">744.48 ms</td>
+</tr>
+<tr>
+<td>Storage write</td>
+<td style="text-align: right;">1709.60 ms</td>
+<td style="text-align: right;">924.69 ms</td>
+<td style="text-align: right;">806.93 ms</td>
+</tr>
+<tr>
+<td>CPU read</td>
+<td style="text-align: right;">342.40 ms</td>
+<td style="text-align: right;">n/a</td>
+<td style="text-align: right;">n/a</td>
+</tr>
+<tr>
+<td>CPU write</td>
+<td style="text-align: right;">522.49 ms</td>
+<td style="text-align: right;">n/a</td>
+<td style="text-align: right;">n/a</td>
+</tr>
+</tbody>
+</table>
+<h2 id="bpftrace-results">bpftrace Results</h2>
+<p>The bpftrace run produced a 1.18 GiB trace file and generated a fio workload file. Key extracted histograms:</p>
+<table>
+<thead>
+<tr>
+<th>Histogram</th>
+<th style="text-align: right;">Samples</th>
+<th style="text-align: right;">P50</th>
+<th style="text-align: right;">P95</th>
+<th style="text-align: right;">P99</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>d2c_read_us</code></td>
+<td style="text-align: right;">236,510</td>
+<td style="text-align: right;">128-256 us</td>
+<td style="text-align: right;">512-1,024 us</td>
+<td style="text-align: right;">512-1,024 us</td>
+<td>Device service time for read commands</td>
+</tr>
+<tr>
+<td><code>d2c_write_us</code></td>
+<td style="text-align: right;">85,334</td>
+<td style="text-align: right;">4,096-8,192 us</td>
+<td style="text-align: right;">16,384-32,768 us</td>
+<td style="text-align: right;">16,384-32,768 us</td>
+<td>Device service time for write commands</td>
+</tr>
+<tr>
+<td><code>q2d_read_us</code></td>
+<td style="text-align: right;">168</td>
+<td style="text-align: right;">4-8 us</td>
+<td style="text-align: right;">16-32 us</td>
+<td style="text-align: right;">16-32 us</td>
+<td>Block queue wait before read dispatch</td>
+</tr>
+<tr>
+<td><code>q2d_write_us</code></td>
+<td style="text-align: right;">17,430</td>
+<td style="text-align: right;">8-16 us</td>
+<td style="text-align: right;">32-64 us</td>
+<td style="text-align: right;">64-128 us</td>
+<td>Block queue wait before write dispatch</td>
+</tr>
+<tr>
+<td><code>vfs_read_us</code></td>
+<td style="text-align: right;">3,621</td>
+<td style="text-align: right;">32-64 us</td>
+<td style="text-align: right;">1,048,576-2,097,152 us</td>
+<td style="text-align: right;">2,097,152-4,194,304 us</td>
+<td>Application-visible read syscall latency</td>
+</tr>
+<tr>
+<td><code>vfs_write_us</code></td>
+<td style="text-align: right;">264</td>
+<td style="text-align: right;">64-128 us</td>
+<td style="text-align: right;">524,288-1,048,576 us</td>
+<td style="text-align: right;">524,288-1,048,576 us</td>
+<td>Application-visible write syscall latency</td>
+</tr>
+<tr>
+<td><code>fsync_us</code></td>
+<td style="text-align: right;">123</td>
+<td style="text-align: right;">262,144-524,288 us</td>
+<td style="text-align: right;">524,288-1,048,576 us</td>
+<td style="text-align: right;">1,048,576-2,097,152 us</td>
+<td>Durable flush latency</td>
+</tr>
+<tr>
+<td><code>write_to_fsync_us</code></td>
+<td style="text-align: right;">123</td>
+<td style="text-align: right;">64-128 us</td>
+<td style="text-align: right;">4,096-8,192 us</td>
+<td style="text-align: right;">8,192-16,384 us</td>
+<td>Gap between write return and fsync entry</td>
+</tr>
+<tr>
+<td><code>fadvise_to_read_us</code></td>
+<td style="text-align: right;">435</td>
+<td style="text-align: right;">64-128 us</td>
+<td style="text-align: right;">4,096-8,192 us</td>
+<td style="text-align: right;">8,192-16,384 us</td>
+<td>Gap from cache-drop hint to read</td>
+</tr>
+<tr>
+<td><code>bssplit_read_kb</code></td>
+<td style="text-align: right;">2,757,689</td>
+<td style="text-align: right;">128-256 KiB</td>
+<td style="text-align: right;">128-256 KiB</td>
+<td style="text-align: right;">128-256 KiB</td>
+<td>Read block size distribution</td>
+</tr>
+<tr>
+<td><code>bssplit_write_kb</code></td>
+<td style="text-align: right;">876,494</td>
+<td style="text-align: right;">128-256 KiB</td>
+<td style="text-align: right;">128-256 KiB</td>
+<td style="text-align: right;">128-256 KiB</td>
+<td>Write block size distribution</td>
+</tr>
+<tr>
+<td><code>qd_read</code></td>
+<td style="text-align: right;">2,757,217</td>
+<td style="text-align: right;">1,048,576-2,097,152</td>
+<td style="text-align: right;">2,097,152-4,194,304</td>
+<td style="text-align: right;">2,097,152-4,194,304</td>
+<td>In-flight read queue depth at dispatch</td>
+</tr>
+<tr>
+<td><code>qd_write</code></td>
+<td style="text-align: right;">876,488</td>
+<td style="text-align: right;">262,144-524,288</td>
+<td style="text-align: right;">524,288-1,048,576</td>
+<td style="text-align: right;">524,288-1,048,576</td>
+<td>In-flight write queue depth at dispatch</td>
+</tr>
+</tbody>
+</table>
+<p><img alt="bpftrace P99" src="bpftrace_p99.svg" /></p>
+<p><img alt="Block I/O shape" src="block_io_shape.svg" /></p>
+<h2 id="fio-workload-distilled-from-bpftrace">fio Workload Distilled From bpftrace</h2>
+<pre><code class="language-ini"># Storage Latency Stack; Distilled fio Workload
+# Generated: 2026-06-07 15:01:53
+# Source process: python3
+# Total traced I/Os: 3,634,183 (2,757,689 reads, 876,494 writes)
+#
+# Device latency (D2C):
+#   D2C Read: P50=128 us, P99=256 us (224767 samples)
+#   D2C Write: P50=4096 us, P99=16384 us (81359 samples)
+# LBA spatial distribution:
+#   Read hot zone: 570-940GiB (96% of I/O)
+#   Write hot zone: 570-950GiB (97% of I/O)
+#
+# Usage:
+#   fio &lt;this_file&gt; --filename=/dev/nvmeXn1
+#   fio &lt;this_file&gt; --filename=/mnt/nvme/fio_test --size=100G
+
+[python3_workload]
+ioengine=libaio
+direct=1
+time_based
+runtime=300
+rw=randrw
+rwmixread=76
+bssplit=2k/1:4k/1:8k/1:16k/1:32k/1:64k/1:128k/100,4k/2:8k/1:16k/1:32k/1:64k/1:128k/96
+iodepth=1048576
+iodepth_batch_submit=1048576
+iodepth_batch_complete_min=1
+size=100%
+thinktime=64
+thinktime_blocks=1048576
+# thinktime_iotime=1s  # uncomment for fio 3.28+
+refill_buffers=1
+norandommap=1
+randrepeat=0
+numjobs=1
+group_reporting
+percentile_list=50:95:99:99.9:99.99
+</code></pre>
+<p>Important note: the generated fio file has <code>iodepth=1048576</code>. This is a mechanical distillation from the observed in-flight histogram and is not a realistic product-test iodepth. For AI SSD comparison, use the generated <code>bssplit</code> and read/write mix, but run a controlled iodepth sweep such as 64, 128, and 256.</p>
+<h2 id="vocabulary">Vocabulary</h2>
+<ul>
+<li><code>VFS read/write</code>: Application-visible Linux virtual filesystem syscall latency. It includes page cache, filesystem work, kernel copying, and any underlying block I/O.</li>
+<li><code>Q2D</code>: Queue-to-dispatch. Time from entering the block layer queue to being dispatched to the device driver. High Q2D points to scheduler or queue contention.</li>
+<li><code>D2C</code>: Dispatch-to-complete. Time from device dispatch to completion. This is closest to SSD/controller command service time.</li>
+<li><code>fsync</code>: Time to force buffered writes to durable storage. High fsync means persistence/flush is expensive.</li>
+<li><code>write_to_fsync</code>: Time between a write returning and fsync being entered. High values indicate application, CPU, lock, GIL, or serialization overhead before the flush.</li>
+<li><code>fadvise_to_read</code>: Time between the benchmark issuing a page-cache drop hint and the following read. Used here to avoid measuring only page-cache hits.</li>
+<li><code>bssplit</code>: Block size distribution seen by the kernel. Here, reads and writes are dominated by 128-256 KiB I/O, meaning large KV blocks are split into many block commands.</li>
+<li><code>QD</code> or queue depth: Number of in-flight I/O operations at dispatch. Extremely high values in trace-derived output should be treated as a workload-shape signal, not a direct fio setting.</li>
+<li><code>LBA heatmap</code>: Logical block address distribution. It shows where on the drive the I/O lands and whether access is clustered or spread out.</li>
+</ul>
+<h2 id="analysis-conclusion">Analysis Conclusion</h2>
+<p>This run is a storage-only KV cache stress test, not an end-to-end inference test. The GPU tier is disabled and the CPU tier is capped at 2 GiB, so the benchmark intentionally pushes most cache entries into the storage tier.</p>
+<p>The benchmark-level result fails the current storage health assessment. The biggest user-visible issue is tail latency: end-to-end P95 is 104.8s, while per-request storage P95 is 19.6s. The difference indicates significant queue wait once 10 users are active on this PC.</p>
+<p>At the block layer, individual read commands are not slow: D2C read P99 is in the 512-1,024 us bucket. Write commands are slower: D2C write P99 is in the 16,384-32,768 us bucket. Scheduler delay is low, with Q2D read/write P99 in microsecond-scale buckets.</p>
+<p>The seconds-level benchmark read latency is therefore not caused by slow individual NVMe read commands. It comes from reading very large KV objects, with block I/O dominated by 128-256 KiB commands, plus VFS and NumPy load/copy overhead. The write path has two bottlenecks: SSD write/flush behavior and host-side serialization. <code>fsync</code> reaches the 1,048,576-2,097,152 us P99 bucket, which is material for AI SSD write-tail evaluation.</p>
+<p>For AI SSD product pre-research, this workload is useful as a stress baseline. The next tests should split prefill-only writes from decode-only reads, add a user-concurrency sweep, and repeat the key cases after SSD preconditioning.</p>
+<h2 id="png-charts">PNG Charts</h2>
+<p><img alt="Throughput and I/O volume PNG" src="throughput_and_volume.png" /></p>
+<p><img alt="P95 latency breakdown PNG" src="latency_breakdown.png" /></p>
+<p><img alt="bpftrace P99 PNG" src="bpftrace_p99.png" /></p>
+<p><img alt="Block I/O count PNG" src="block_io_count.png" /></p>
+</body>
+</html>
