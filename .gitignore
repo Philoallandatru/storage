@@ -87,11 +87,17 @@ results/kvcache-profile/**
 !results/kvcache-profile/report/*.csv
 !results/kvcache-profile/visualizations/
 !results/kvcache-profile/visualizations/*.xlsx
+# I/O profiling analysis artifacts (small static md/png/csv from
+# scripts/analyze_io_trace.py and scripts/summarize_iostat_pidstat.py)
+!results/kvcache-profile/io_pattern_*.md
+!results/kvcache-profile/io_pattern_*.png
+!results/kvcache-profile/iostat_summary_*.csv
 
 # Local benchmark datasets and generated storage profiles
 datasets/
 kv_cache_benchmark/fio_traced_*.ini
 kv_cache_benchmark/fio_*.ini
+kv_cache_benchmark/results/
 *.bpftrace.txt
 *bpftrace*.txt
 
