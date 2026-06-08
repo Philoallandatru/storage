@@ -97,6 +97,12 @@ results/kvcache-profile/**
 !results/kvcache-profile/fio_sweep/sweep_summary.csv
 !results/kvcache-profile/fio_sweep/sweep_analysis.md
 !results/kvcache-profile/fio_sweep/sweep_curves.png
+# P1: SSD preconditioning fio sweep artifacts
+!results/kvcache-profile/fio_sweep_precond/
+!results/kvcache-profile/fio_sweep_precond/sweep_precond_summary.csv
+!results/kvcache-profile/fio_sweep_precond/sweep_precond_analysis.md
+!results/kvcache-profile/fio_sweep_precond/sweep_precond_comparison.png
+!results/kvcache-profile/fio_sweep_precond/precondition_clean.json
 
 # Local benchmark datasets and generated storage profiles
 datasets/
