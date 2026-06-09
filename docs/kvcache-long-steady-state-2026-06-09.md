@@ -87,7 +87,8 @@
 ### 1. AI SSD 在稳态下 IOPS 持续 17K+
 
 BIWIN X570 1TB 在30 分钟持续高负载下,平均 17K read IOPS,2.5K write IOPS。
-这超过了产品 spec(~98K IOPS 峰值)的 ~17%,**意味着 SSD 长时间运行不会退化到不可用**。
+这约为消费级随机读峰值规格的一小部分,但已经足以让 70B KV-cache 队列堆积。
+**结论不是“IOPS 不够高”,而是长稳态下 tail latency 和队列压力比峰值 IOPS 更重要**。
 
 ### 2. await 单调上升 = GC 持续负担
 

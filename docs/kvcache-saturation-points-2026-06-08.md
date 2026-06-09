@@ -1,6 +1,6 @@
 # KV-Cache Saturation Point Sweep — 2026-06-08
 
-> **TL;DR:** 在当前 NVMe 设备上，**70B 用户数 ≥ 12 即触发真硬件饱和门槛**（device P95 > 100ms，SLA 全面崩溃）；**8B 用户数 ≤ 32 仍未饱和**（device P95 ≈ 43ms read / 112ms write，SLA 100% PASS）。Trace 模式（NullBackend）会**高估系统能力 5–10×**，容量规划必须使用 Round 2 真硬件数据。
+> **TL;DR:** 在当前 NVMe 设备上，**70B users=12 已触发真硬件服务饱和门槛**（device P95 > 100ms，E2E P95 进入分钟级，QoS SLA 全面失败）；**8B users=32 仍未触发 device-level 饱和**（device P95 ≈ 44ms read / 113ms write），但同样出现 autoscaling 排队导致的 service-level SLA 失败。Trace 模式（NullBackend）会**高估系统能力**，容量规划必须使用 Round 2 真硬件数据。
 
 ---
 
@@ -38,22 +38,22 @@
 
 | 指标 | 70B users=12 | 8B users=32 | 解读 |
 |---|---:|---:|---|
-| **Storage Read Device P95** | **127.86 ms** ⚠️ | **43.05 ms** ✅ | 70B-12 已逼近 200ms SLA 上限 |
-| **Storage Write Device P95** | **154.87 ms** ⚠️ | **112.05 ms** ✅ | 70B-12 写延迟为 8B-32 的 1.4× |
+| **Storage Read Device P95** | **128.26 ms** ⚠️ | **43.86 ms** ✅ | 70B-12 已逼近 200ms 读目标 |
+| **Storage Write Device P95** | **154.63 ms** ⚠️ | **112.67 ms** ✅ | 70B-12 写延迟为 8B-32 的 1.4× |
 | **Storage Read Bandwidth** | 2.94 GiB/s | n/a (低延迟) | 70B-12 跑到 NVMe 极限 |
-| **E2E Latency P95** | **115.6 秒** ❌ | n/a (P50 ~4.1 s) | 70B-12 用户级别灾难 |
-| **E2E Latency P99** | **133.4 秒** ❌ | n/a | 99% 用户等待 2 分钟 |
-| **RESPONSIVE P95** | **107.3 秒** ❌ | 14.7 ms ✅ | 70B-12 响应式请求全失败 |
-| **SLA Compliance (INTERACTIVE)** | **0.6%** ❌ | 100% ✅ | 70B-12 几乎所有请求超时 |
-| **SLA Compliance (RESPONSIVE)** | **1.0–1.2%** ❌ | 100% ✅ | |
-| **Queue Depth (峰值)** | 4,536 users | 0 | 70B-12 队列积压严重 |
-| **Autoscaler `saturation` 指标** | 0.50 (触发) | 0.00 | 70B-12 真实饱和信号 |
+| **E2E Latency P95** | **141.3 秒** ❌ | **129.4 秒** ❌ | autoscaling/队列导致用户级延迟不可接受 |
+| **E2E Latency P99** | **148.1 秒** ❌ | **131.2 秒** ❌ | 用户侧 tail 已进入分钟级 |
+| **RESPONSIVE P95** | **145.9 秒** ❌ | **8.95 秒** ❌ | responsive QoS 均未达标 |
+| **SLA Compliance (INTERACTIVE)** | **0.43%** ❌ | **1.35%** ❌ | interactive 基本失败 |
+| **SLA Compliance (RESPONSIVE)** | **0.59%** ❌ | **2.25%** ❌ | responsive 基本失败 |
+| **Autoscaler final users** | 109 | 500 | 8B 还能扩容，但队列延迟已不可忽略 |
+| **Autoscaler saturation level** | 最高 1.0 | 最高约 0.49 | 70B 已触发强饱和；8B 接近阈值但未超过 0.5 |
 
 **🔑 核心结论：**
 
-- **70B users=12 = 真硬件饱和门槛**（device P95 已超过 100ms，SLA 全面失败）
-- **8B users=32 仍远未饱和**（8B 单 token KV 只有 128 KiB vs 70B 的 320 KiB，硬件压力只有 40%）
-- **Trace 模式与真硬件的 device latency 差异 > 100×**（0.00ms vs 127.86ms）—— 容量规划必须用 Round 2 数据
+- **70B users=12 = 真硬件服务饱和门槛**（device P95 已超过 100ms，SLA 全面失败）
+- **8B users=32 仍未触发 device-level 饱和**（8B 单 token KV 只有 128 KiB vs 70B 的 320 KiB，硬件压力只有 40%），但 service-level 已经受 autoscaling/排队影响，因此不能写成“SLA 100% PASS”。
+- **Trace 模式与真硬件的 device latency 差异 > 100×**（0.00ms vs 128.26ms）—— 容量规划必须用 Round 2 数据
 
 ### 2.3 I/O Pattern 分析（来自 `analyze_io_trace.py`）
 
@@ -77,12 +77,12 @@
 ## 三、对 AI SSD 选型的实际意义
 
 1. **单用户并发上限**：
-   - 70B TP8: ≤ 8 users 仍安全（device P95 < 100ms），12+ users 必然触发 SLA 失败
-   - 8B TP8: ≥ 32 users 仍安全（device P95 < 50ms），可继续往上探
+   - 70B TP8: ≤ 8 users 仍安全（device P95 < 200ms），12+ users 触发服务级 SLA 失败
+   - 8B TP8: users32 仍未触发 device-level 饱和，可继续往上探 device 边界；但如果以 service SLA 为目标，users32 已经不是健康配置
 
 2. **NVMe 设备真实吞吐**：
    - 70B-12 跑到 **2.94 GiB/s**（饱和边缘）
-   - 8B-32 跑到 **2.48 GiB/s**（仍有空间）
+   - 8B-32 设备级延迟仍低,但 E2E/QoS 已经受排队影响
    - **结论：当前 NVMe 设备 KV-cache 持续读吞吐上限 ~3 GiB/s**
 
 3. **trace mode 不可用于容量规划** —— 必须用 `run_full_profiling.sh` Round 2 (真硬件) 才能反映真实 SLA
@@ -115,13 +115,13 @@
 | Run | 起始 users | Final users | Scaling Events | Saturation 触发 | 含义 |
 |---|---:|---:|---:|---|---|
 | 70B-12 Round 1 (trace) | 12 | **500 (上限)** | **25** | ❌ 0.00 | trace 模式无法感知压力，autoscaler 一路放行 |
-| 70B-12 Round 2 (bpftrace) | 12 | 500 (上限) | 28+ | ✅ **0.50** | 真硬件扛不住，autoscaler 知道但扛不住 Queue 4500+ |
+| 70B-12 Round 2 (bpftrace) | 12 | 109 | 20 | ✅ **最高 1.0** | 真硬件服务级饱和，autoscaler 明显回收 |
 | 8B-32 Round 1 (trace) | 32 | **321** | 17 | ❌ 0.00 | 8B 容量大，autoscaler 较克制 |
-| 8B-32 Round 2 (bpftrace) | 32 | 500 (上限) | 28+ | ❌ 0.00 | 8B 即使到 500 users 也没触发真饱和信号 |
+| 8B-32 Round 2 (bpftrace) | 32 | 500 (上限) | 28 | ⚠️ **最高约 0.49** | device-level 未过 0.5,但 service-level SLA 已失败 |
 
 **关键观察**：
 - Trace 模式下 `saturation` 指标**永远不触发**（0.00），autoscaler 误以为系统健康
-- Round 2 (bpftrace) 下 70B-12 **saturation=0.50** 是真硬件瓶颈的强信号
+- Round 2 (bpftrace) 下 70B-12 **saturation 最高到 1.0** 是真硬件瓶颈的强信号
 - **建议把 saturation ≥ 0.5 作为 AI SSD 选型 red flag**
 
 ---

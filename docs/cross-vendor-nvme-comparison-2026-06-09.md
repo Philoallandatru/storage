@@ -23,9 +23,14 @@ test suite that simulates LLM KV-cache access patterns. The lineup spans:
 | Vendor | Seq Read | Seq Write | Read latency | Vendor spec R/W |
 |---|---:|---:|---:|---|
 | WD SN570       | 2,275 MB/s | 1,936 MB/s | 1,758 μs | 3,500 / 3,000 |
-| **Biwin X570** | **8,573 MB/s** 🏆 | **7,965 MB/s** 🏆 | **467 μs** | 7,400 / 6,800 |
+| **Biwin X570** | **8,573 MB/s** 🏆 | **7,965 MB/s** 🏆 | **467 μs** | see note |
 | ZhiTai Ti600   | 6,345 MB/s | 3,696 MB/s | 630 μs | 7,000 / 6,500 |
 | Seagate FC530  | 4,989 MB/s | 4,600 MB/s | 802 μs | 7,300 / 6,000 |
+
+Note: the vendor-spec column is retained only as loose context. It was not
+re-verified against each exact SKU during this report audit. Use the measured
+fio data for conclusions; use vendor datasheets only after matching SKU,
+firmware, PCIe generation, filesystem, thermal state, and test method.
 
 ### 4K Random IOPS (Test 5, QD=64, sweet spot for most consumer SSDs)
 
@@ -116,11 +121,10 @@ longer than a few minutes (e.g. a prefill + long decode session), ZhiTai is the 
   read-heavy workloads without cache hits, DRAM-less SSDs fall off a cliff.
 
 ### 2. Biwin X570 dominates for raw performance
-- **8.5 GB/s sequential read** — exceeds vendor spec (7.4 GB/s), best in class.
+- **8.5 GB/s sequential read** — best in this test set. Do not compare this number directly against a vendor peak spec unless the exact SKU, PCIe link, filesystem, thermal state, and test method are matched.
 - **495k IOPS random read** at QD=64 — second only to ZhiTai at QD=256.
 - **Mixed 90/10**: 902 MB/s read + 100 MB/s write — best balanced profile for KV cache.
-- **SLC cache appears to exceed 168 GB** — sustained 7.9 GB/s over a 160 GB write, with no
-  measurable cliff. This is dramatically larger than the other 3 drives.
+- **Fresh cross-vendor SLC probe did not observe a cliff within 168 GB** — sustained 7.9 GB/s over the test window. This is condition-dependent and should not be treated as a fixed physical SLC size.
 - **Page cache speedup is minimal (1.02x)** — its onboard 1 GB DRAM handles caching natively.
 
 ### 3. ZhiTai Ti600 needs high queue depth to shine
@@ -143,9 +147,11 @@ longer than a few minutes (e.g. a prefill + long decode session), ZhiTai is the 
 | ZhiTai | pSLC ~4 GB |
 | Seagate | pSLC ~170 MB |
 
-The "SLC cache" effect everyone talks about is mostly absent on Biwin (which stays in fast
-mode for the entire 160 GB run) and minimal on Seagate. Only ZhiTai shows a clean cliff at
-~4 GB.
+The "SLC cache" effect is highly condition-dependent. In this cross-vendor fresh probe,
+Biwin stayed in fast mode for the 168 GB test window, while the dedicated BIWIN root
+partition characterization measured a smaller cliff (~71 GiB fresh, ~95 GiB after
+steady-state preconditioning). Treat these as different operating states, not a single
+fixed cache-size fact. Only ZhiTai shows a clean cliff at ~4 GB in this suite.
 
 ## Recommendations for AI SSD procurement
 
@@ -193,8 +199,9 @@ Then 5 min idle. Then 10 GB fresh slice to measure "cold SLC refill" BW.
   T2 BW_min of 5 MB/s) may be due to single IO spikes rather than steady state.
 - **Disk free space**: WD had only 198 GB free; T2/T3 reduced to 168 GB to avoid filling.
 - **Tests run serially**, no parallel disk access. Each disk's full suite is sequential.
-- **T3 (steady state SLC) and T4 (15-min GC drift)** were not yet completed at report time.
-  See `scripts/cross_vendor_t3_slc_steady.sh` and `cross_vendor_t4_gc_drift.sh`.
+- **T3 (steady state SLC) and T4 (15-min GC drift)** were completed after the initial
+  report draft and are now included above. Remaining caveat: each cell is still a
+  single run, not a 3-run median.
 
 ## Files
 

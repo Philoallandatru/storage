@@ -29,13 +29,13 @@
 | prefill/decode 分离 | 完成 | 纯写和纯读都比混合 workload 更轻，混合读写更能暴露 SSD tail latency |
 | fio iodepth sweep | 完成 | 合理 `iodepth` 是 32 左右，超过 64 基本只增加尾延迟 |
 | SSD preconditioning | 完成 | 570GiB sequential write 后，P99 尾延迟整体更稳定，写 P99 改善最明显 |
-| saturation sweep | 完成第一轮 | 70B users=12 是当前设备的真硬件饱和门槛；8B users=32 仍未饱和 |
+| saturation sweep | 完成第一轮 | 70B users=12 是当前设备的服务级饱和门槛；8B users=32 device-level 仍轻，但 service-level 已受排队影响 |
 
 最新最重要的产品判断：
 
 1. 当前本地 NVMe 对 70B TP8 KV cache 的安全并发边界大约在 users=8 到 users=12 之间。
 2. 70B users=12 已出现真硬件饱和信号：device P95 超过 100ms，E2E P95 超过 100s，SLA 大面积失败。
-3. 8B TP8 users=32 仍未饱和，说明模型 KV bytes/token 是决定 SSD 压力的关键变量。
+3. 8B TP8 users=32 仍未触发 device-level 饱和，但 QoS/E2E 已受 autoscaling 排队影响；模型 KV bytes/token 仍是决定 SSD device 压力的关键变量。
 4. Trace mode 只能分析 workload 形态，不能做容量规划。容量规划必须看 Round 2 真硬件 I/O。
 5. AI SSD 预研不能只看 fio 单点指标，必须同时看 KV object tail、设备 await/util、block D2C、workload trace。
 
@@ -177,7 +177,7 @@ Preconditioning 是为了避免空盘或不稳定 GC 状态带来的偏差。本
 | users4 | PASS | Read P95 31.54ms，Write P95 55.64ms | 写 tail 开始上升 |
 | users6 | PASS | Read P95 41.54ms，Write P95 114.54ms | 写路径更敏感 |
 | users8 | PASS | Read P95 46.48ms，Write P95 118.44ms | 8B users8 仍有余量 |
-| users32 saturation sweep | PASS | Read P95 43.05ms，Write P95 112.05ms，SLA 100% | 8B users32 仍未饱和 |
+| users32 saturation sweep | device-level PASS, service-level FAIL | Read P95 43.86ms，Write P95 112.67ms，E2E P95 129.4s | 8B users32 仍未触发 device-level 饱和，但已不是健康 service SLA 配置 |
 
 产品含义：对 8B 级模型，本地 NVMe 不是主要瓶颈。AI SSD 差异需要更高 users 或更大模型才能放大。
 
@@ -189,7 +189,7 @@ Preconditioning 是为了避免空盘或不稳定 GC 状态带来的偏差。本
 | users4 | PASS | Read P95 92.67ms，Write P95 125.53ms | tail 明显上升 |
 | users6 bursttrace/full | PASS | Read P95 96.10/96.53ms，Write P95 127.60/114.02ms | users6 稳定 PASS |
 | users8 full | PASS | Read P95 164.63ms，Write P95 175.41ms | 接近 read 200ms 目标，但仍 PASS |
-| users12 saturation | 饱和 | Read P95 127.86ms，Write P95 154.87ms，E2E P95 115.6s，SLA 近乎全失败 | 真硬件容量已经不可接受 |
+| users12 saturation | 服务级饱和 | Read P95 128.26ms，Write P95 154.63ms，E2E P95 141.3s，SLA 近乎全失败 | 真硬件服务容量已经不可接受 |
 
 为什么 users12 的 read/write device P95 还没超过 200/500ms，但仍判定饱和：因为产品体验看的是整体服务可用性。users12 下 queue depth 和 E2E latency 已经崩溃，SLA compliance 接近 0。这说明瓶颈不仅是单个 KV object device P95，还包括队列堆积和调度压力。
 
@@ -242,7 +242,7 @@ Preconditioning 是为了避免空盘或不稳定 GC 状态带来的偏差。本
 
 ### 判断 2：70B 比 8B 更适合做 AI SSD 产品边界测试
 
-70B 的 KV bytes/token 是 320KiB，8B 是 128KiB，TP8 后 object size 仍约为 8B 的 2.5 倍。最新 saturation sweep 中，70B users12 已经暴露真硬件边界，而 8B users32 仍未饱和。
+70B 的 KV bytes/token 是 320KiB，8B 是 128KiB，TP8 后 object size 仍约为 8B 的 2.5 倍。最新 saturation sweep 中，70B users12 已经暴露服务级边界，而 8B users32 仍未触发 device-level 饱和；不过 8B users32 的 E2E/QoS 已受排队影响，不能作为健康 serving 配置。
 
 产品建议：用 70B TP8 CPU0 BurstGPT users8/10/12 作为核心评估矩阵；8B 作为低压 baseline。
 
@@ -264,7 +264,7 @@ prefill-only 和 decode-only 分别隔离了写和读，但混合模式才同时
 
 | 模型 | 当前结论 |
 |---|---|
-| 8B TP8 CPU0 | users32 仍未饱和，可继续上探 users64/128 |
+| 8B TP8 CPU0 | users32 device-level 仍未饱和，但 service-level 已排队；若只找设备边界可继续 users64/128 |
 | 70B TP8 CPU0 | users8 仍 PASS，users12 已触发真实服务饱和 |
 | SSD 持续读吞吐 | 约 3GiB/s 是当前设备级上限附近 |
 | 合理 fio qd | 约 32；qd>64 主要增加 tail latency |
@@ -323,4 +323,4 @@ prefill-only 和 decode-only 分别隔离了写和读，但混合模式才同时
 4. 用 4 层 profiling 定位问题在 KV object、filesystem、block layer 还是 device。
 5. 用 fio sweep 和 preconditioning 把 workload 转成可复现的 SSD 硬件验收项。
 
-当前最有价值的产品结论是：在本地 NVMe 上，8B TP8 仍有很大余量；70B TP8 的真实服务边界已经出现在 users8 到 users12 之间。AI SSD 产品预研下一步应优先围绕 70B TP8 CPU0 BurstGPT users10/12、长稳态、企业级 SSD 对照展开。
+当前最有价值的产品结论是：在本地 NVMe 上，8B TP8 的 device-level 仍有余量，但 service-level autoscaling/排队已经需要单独建模；70B TP8 的真实服务边界已经出现在 users8 到 users12 之间。AI SSD 产品预研下一步应优先围绕 70B TP8 CPU0 BurstGPT users10/12、长稳态、企业级 SSD 对照展开。
