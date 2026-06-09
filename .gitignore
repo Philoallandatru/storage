@@ -141,3 +141,9 @@ RC=*
 /.hermes/
 # run_full_profiling.sh produces long per-RUN profiling/ subdirs we don't ship
 results/kvcache-profile/profiling/test_*/
+# Page cache sensitivity sweep — ship per-cell summary, not raw fio/iostat logs
+!results/kvcache-profile/pagecache_sweep/
+!results/kvcache-profile/pagecache_sweep/*/summary.csv
+!results/kvcache-profile/pagecache_sweep/*/analysis.md
+!results/kvcache-profile/pagecache_sweep/summary.csv
+!results/kvcache-profile/pagecache_sweep/analysis.md
