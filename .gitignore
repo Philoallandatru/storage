@@ -109,6 +109,11 @@ results/kvcache-profile/**
 !results/ssd-characterization/ssd_slc_*/*.csv
 !results/ssd-characterization/ssd_slc_*/*bw.log
 !results/ssd-characterization/*/precond_dd.log
+# Long steady-state GC drift analysis artifacts
+!results/kvcache-profile/long_steady_analysis/
+!results/kvcache-profile/long_steady_analysis/*.csv
+!results/kvcache-profile/long_steady_analysis/*.md
+!results/kvcache-profile/long_steady_analysis/*.png
 
 # Local benchmark datasets and generated storage profiles
 datasets/
