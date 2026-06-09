@@ -103,6 +103,12 @@ results/kvcache-profile/**
 !results/kvcache-profile/fio_sweep_precond/sweep_precond_analysis.md
 !results/kvcache-profile/fio_sweep_precond/sweep_precond_comparison.png
 !results/kvcache-profile/fio_sweep_precond/precondition_clean.json
+# SSD SLC cache characterization artifacts (steady-state comparison)
+!results/ssd-characterization/ssd_slc_*/*.md
+!results/ssd-characterization/ssd_slc_*/*.json
+!results/ssd-characterization/ssd_slc_*/*.csv
+!results/ssd-characterization/ssd_slc_*/*bw.log
+!results/ssd-characterization/*/precond_dd.log
 
 # Local benchmark datasets and generated storage profiles
 datasets/
