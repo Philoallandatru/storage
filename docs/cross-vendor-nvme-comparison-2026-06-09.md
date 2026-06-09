@@ -63,6 +63,25 @@ test suite that simulates LLM KV-cache access patterns. The lineup spans:
 | ZhiTai Ti600   | 4,971 MB/s | 5,485 MB/s | SLC ~4 GB, post-idle ~5.5 GB/s suggests pSLC retained |
 | Seagate FC530  | 4,587 MB/s | 4,569 MB/s | SLC ~170 MB, post-idle recovers 4.6 GB/s |
 
+### SLC cache behavior — fresh vs steady state (Test 3)
+
+After pre-conditioning with 168 GB sequential write + 5 min idle (allowing GC to drain
+back to a stable "in-use" state), we re-probe SLC cache size.
+
+| Vendor | T2 Fresh mean BW | T3 Steady mean BW | **Steady/Fresh** | Interpretation |
+|---|---:|---:|---:|---|
+| WD SN570       | 1,971 MB/s | 1,724 MB/s | **0.87 (−13%)** | Already small, GC drains quickly |
+| **Biwin X570** | 7,931 MB/s | 3,410 MB/s | **0.43 (−57%)** | **SLC drops from 168+ GB to ~50 GB after long use** |
+| ZhiTai Ti600   | 4,971 MB/s | 5,124 MB/s | **1.03 (+3%)** | pSLC retained or refreshed |
+| Seagate FC530  | 4,587 MB/s | 2,379 MB/s | **0.52 (−48%)** | **SLC also drops dramatically in steady state** |
+
+**This is the headline finding of T3**: Biwin's advertised "huge SLC cache" is **only
+present on a freshly TRIMmed / unused drive**. After sustained writes, the controller
+fills its SLC buffer space with persistent data and cannot re-create the full pSLC region
+until a long idle period passes. Seagate behaves similarly. By contrast, ZhiTai's
+modest SLC cache is **stable across fresh vs steady state** — its algorithm appears
+to reserve SLC space persistently rather than dynamically.
+
 ## Key Findings
 
 ### 1. DRAM-less WD SN570 is the weakest by every measure
