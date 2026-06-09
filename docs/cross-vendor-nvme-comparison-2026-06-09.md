@@ -82,6 +82,30 @@ until a long idle period passes. Seagate behaves similarly. By contrast, ZhiTai'
 modest SLC cache is **stable across fresh vs steady state** — its algorithm appears
 to reserve SLC space persistently rather than dynamically.
 
+### GC drift under sustained random read (Test 4, 15 min, 16k randread QD=4)
+
+To measure how each drive's throughput degrades once its SLC cache and GC back-pressure
+are both engaged in a long-lived workload (the realistic shape of an inference node serving
+KV-cache reads for 15 min straight), we sampled `iostat` at 1 Hz and compared the first 60 s
+vs last 60 s window.
+
+| Vendor | Start BW (first 60 s) | End BW (last 60 s) | **Drift** | Verdict |
+|---|---:|---:|---:|---|
+| **WD SN570** | 591 MB/s | 557 MB/s | **−5.9%** | 🟢 rock-steady |
+| **ZhiTai Ti600** | 1,079 MB/s | 941 MB/s | **−12.8%** | 🟡 mild drop |
+| **Seagate FC530** | 983 MB/s | 765 MB/s | **−22.1%** | 🟡 moderate |
+| **Biwin X570** | 1,118 MB/s | 777 MB/s | **−30.5%** | 🔴 severe |
+
+**The headline finding of T4**: the *sustainable* throughput ranking after 15 min is
+**ZhiTai (941 MB/s) > Seagate ≈ Biwin (~770 MB/s) >> WD (557 MB/s)** — completely
+different from the burst-test ranking. Biwin's 1.1 GB/s initial speed collapses by a
+third once GC back-pressure kicks in; ZhiTai's lower peak is *more predictable* and ends
+up the highest sustained rate.
+
+Combined with T3, this means Biwin is a **burst champion** but its 15-min sustained rate
+is essentially indistinguishable from Seagate's. If a workload's "burst phase" lasts
+longer than a few minutes (e.g. a prefill + long decode session), ZhiTai is the safer bet.
+
 ## Key Findings
 
 ### 1. DRAM-less WD SN570 is the weakest by every measure
@@ -132,6 +156,8 @@ mode for the entire 160 GB run) and minimal on Seagate. Only ZhiTai shows a clea
 | Mixed R/W checkpointing + serving | **Seagate FC530** | 1.27 GB/s 90/10 read |
 | Budget / DRAM-constrained | **WD SN570** only if system has plenty of DRAM for page cache |
 | All-rounder / production deployment | **Biwin X570** | Best peak + lowest latency |
+| Sustained 15+ min inference serving | **ZhiTai Ti600** | Smallest GC drift, most predictable throughput |
+| KV-cache with DRAM-rich host (page cache) | **WD SN570** | +38% page cache speedup recovers DRAM-less gap |
 
 ## Methodology
 

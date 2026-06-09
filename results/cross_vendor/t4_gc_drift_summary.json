@@ -1,0 +1,42 @@
+{
+  "biwin_x570": {
+    "samples": 909,
+    "duration_s": 909,
+    "bw_first_mbs": 1117.8028333333334,
+    "bw_last_mbs": 776.810833333333,
+    "bw_drift_pct": -30.50555874716728,
+    "r_await_first_us": 0.12516666666666693,
+    "r_await_last_us": 0.07983333333333337,
+    "await_ratio": 0.6378162450066568
+  },
+  "seagate_fc530": {
+    "samples": 910,
+    "duration_s": 910,
+    "bw_first_mbs": 982.6780000000002,
+    "bw_last_mbs": 765.2476666666666,
+    "bw_drift_pct": -22.126305191866873,
+    "r_await_first_us": 0.07100000000000004,
+    "r_await_last_us": 0.08033333333333337,
+    "await_ratio": 1.1314553990610328
+  },
+  "wd_sn570": {
+    "samples": 932,
+    "duration_s": 932,
+    "bw_first_mbs": 591.2553333333333,
+    "bw_last_mbs": 556.6355000000003,
+    "bw_drift_pct": -5.855310114186364,
+    "r_await_first_us": 0.05749999999999999,
+    "r_await_last_us": 0.1100000000000001,
+    "await_ratio": 1.9130434782608716
+  },
+  "zhitai_ti600": {
+    "samples": 911,
+    "duration_s": 911,
+    "bw_first_mbs": 1079.3576666666668,
+    "bw_last_mbs": 941.0165,
+    "bw_drift_pct": -12.816990228447612,
+    "r_await_first_us": 0.0591666666666667,
+    "r_await_last_us": 0.060000000000000046,
+    "await_ratio": 1.0140845070422537
+  }
+}
