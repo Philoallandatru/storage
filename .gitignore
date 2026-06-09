@@ -143,7 +143,7 @@ RC=*
 results/kvcache-profile/profiling/test_*/
 # Page cache sensitivity sweep — ship per-cell summary, not raw fio/iostat logs
 !results/kvcache-profile/pagecache_sweep/
+!results/kvcache-profile/pagecache_sweep/*.md
+!results/kvcache-profile/pagecache_sweep/*.csv
 !results/kvcache-profile/pagecache_sweep/*/summary.csv
 !results/kvcache-profile/pagecache_sweep/*/analysis.md
-!results/kvcache-profile/pagecache_sweep/summary.csv
-!results/kvcache-profile/pagecache_sweep/analysis.md
