@@ -234,6 +234,7 @@ def main() -> int:
     parser.add_argument("--drop-ratio", type=float, default=0.65, help="Cliff threshold vs initial speed.")
     parser.add_argument("--name", default=None, help="Optional run name suffix.")
     parser.add_argument("--keep-file", action="store_true", help="Keep the test file after the run.")
+    parser.add_argument("--rwmixread", type=int, default=100, help="Percentage of reads (0-100). 100 = pure sequential write (default), 70 = 70%% read + 30%% write mixed R/W.")
     parser.add_argument("--yes", action="store_true", help="Actually run fio. Without this, print the plan and exit.")
     args = parser.parse_args()
 
@@ -279,7 +280,11 @@ def main() -> int:
         fio,
         "--name=slc-characterize",
         f"--filename={test_file}",
-        "--rw=write",
+        "--rw=randrw" if args.rwmixread < 100 else "--rw=write",
+    ]
+    if args.rwmixread < 100:
+        cmd.append(f"--rwmixread={args.rwmixread}")
+    cmd.extend([
         f"--bs={args.bs}",
         f"--iodepth={args.iodepth}",
         "--ioengine=libaio",
@@ -293,7 +298,7 @@ def main() -> int:
         f"--write_bw_log={run_dir / log_prefix}",
         "--per_job_logs=0",
         "--output-format=json",
-    ]
+    ])
 
     print("\nRunning fio...")
     with fio_json.open("w") as out, fio_stderr.open("w") as err:
