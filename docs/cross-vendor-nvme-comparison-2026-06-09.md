@@ -123,7 +123,8 @@ longer than a few minutes (e.g. a prefill + long decode session), ZhiTai is the 
 ### 2. Biwin X570 dominates for raw performance
 - **8.5 GB/s sequential read** — best in this test set. Do not compare this number directly against a vendor peak spec unless the exact SKU, PCIe link, filesystem, thermal state, and test method are matched.
 - **495k IOPS random read** at QD=64 — second only to ZhiTai at QD=256.
-- **Mixed 90/10**: 902 MB/s read + 100 MB/s write — best balanced profile for KV cache.
+- **Mixed 90/10**: 902 MB/s read + 100 MB/s write — strong, but not the best in this suite.
+  Seagate FC530 is the mixed-workload leader; Biwin's advantage is burst/sequential and QD64 random.
 - **Fresh cross-vendor SLC probe did not observe a cliff within 168 GB** — sustained 7.9 GB/s over the test window. This is condition-dependent and should not be treated as a fixed physical SLC size.
 - **Page cache speedup is minimal (1.02x)** — its onboard 1 GB DRAM handles caching natively.
 
@@ -161,7 +162,8 @@ fixed cache-size fact. Only ZhiTai shows a clean cliff at ~4 GB in this suite.
 | Multi-user decode (high QD, read-heavy) | **ZhiTai Ti600** | Best QD=256 scaling |
 | Mixed R/W checkpointing + serving | **Seagate FC530** | 1.27 GB/s 90/10 read |
 | Budget / DRAM-constrained | **WD SN570** only if system has plenty of DRAM for page cache |
-| All-rounder / production deployment | **Biwin X570** | Best peak + lowest latency |
+| Burst-heavy / cold-load deployment | **Biwin X570** | Best peak sequential and QD64 random performance |
+| Balanced production deployment | **Seagate FC530 or ZhiTai Ti600** | Seagate wins mixed R/W; ZhiTai wins 15-min sustained read stability |
 | Sustained 15+ min inference serving | **ZhiTai Ti600** | Smallest GC drift, most predictable throughput |
 | KV-cache with DRAM-rich host (page cache) | **WD SN570** | +38% page cache speedup recovers DRAM-less gap |
 

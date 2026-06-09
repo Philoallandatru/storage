@@ -36,6 +36,7 @@
 | 6 | `docs/biwin-x570-slc-steady-state-vs-fresh-2026-06-09.md` | 可用，需单次样本 caveat | BIWIN fresh vs steady SLC cache |
 | 7 | `docs/biwin-x570-slc-mixed-rw-2026-06-09.md` | 可用，需单次样本 caveat | mixed R/W 下 SLC cache 价值 |
 | 8 | `docs/kvcache-pagecache-sensitivity-2026-06-09.md` | 可用，需 order-effect caveat | DRAM page cache 敏感性 |
+| 9 | `docs/ai-ssd-multidisk-validation-plan-2026-06-10.md` | 新增 | 多盘对比设计与 AI SSD 产品验证计划 |
 
 历史报告：
 
