@@ -152,3 +152,5 @@ results/kvcache-profile/profiling/test_*/
 !results/cross_vendor/t4_gc_drift_summary.json
 # Cross-vendor KV cache summary CSV (small, derived from per-disk JSONs)
 !results/cross_vendor/kv_cache_summary.csv
+# K4 GC drift IO pattern analysis (small JSON, derived from iostat.txt)
+!results/cross_vendor/kv_cache_k4_gc_drift/_analysis/
