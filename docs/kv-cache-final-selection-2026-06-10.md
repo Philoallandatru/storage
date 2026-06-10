@@ -1,17 +1,15 @@
 # KV Cache Cross-Vendor NVMe SSD — Final Selection Report
 **Date:** 2026-06-10
-**Scope:** 4 consumer NVMe SSDs × 3 KV cache scenarios × 1200 s long-steady-state
+**Scope:** 4 consumer NVMe SSDs × 4 KV cache scenarios × 1800 s long-steady-state
 **Audience:** AI infrastructure team — NVMe SSD procurement for LLM inference serving nodes
 
-This report consolidates K5, K4, and K4-GC-drift results with IO-pattern analysis into a single decision document.
+This report consolidates K5, K4, K4-GC-drift (20 min), and K4-30-min-drift results with IO-pattern analysis into a single decision document.
 
 ---
 
 ## TL;DR — One-paragraph recommendation
 
-**Standardize on Seagate FC530 (Phison E18) for sustained LLM serving, keep Biwin X570 for short-burst inference nodes, do not deploy ZhiTai Ti600 or WD SN570 for KV cache workloads.**
-
-The Biwin's reputation as the strongest consumer NVMe holds only for bursts under ~3 minutes; its SLC cache (~95 GiB effective) runs out within 175 s under sustained random write, after which read bandwidth drops 40 % and write tail latency grows 3.5×. The Seagate's larger effective SLC cache (~8 min) and dramatically better write service time (24 ms p99 vs Biwin 57 ms, ZhiTai 511 ms, WD 605 ms) make it the right choice for the >5 min sessions that characterize production serving. ZhiTai's YMTC NAND shows catastrophic write tail under sustained random IO. WD's DRAM-less controller limits throughput from the start.
+**At 30 min, Biwin X570 and Seagate FC530 are functionally equivalent (1.57 vs 1.54 GB/s — within run-to-run noise).** Both deliver usable read BW around 1.55 GB/s at 30 min, but both exhibit 5-min GC-stall events every ~10 min that drop BW to ~0.2 GB/s. Seagate's stalls are shallower and its write tail latency is consistently lower (213 ms vs 227 ms at 30 min). For practical deployment at 30+ min sessions, choose based on supply chain and cost — both drives are acceptable. Shorter sessions (<5 min) clearly favor Biwin for peak BW; mixed checkpoint+inference clearly favors Seagate for write tail. **ZhiTai Ti600 and WD SN570 are not recommended for KV cache workloads under any scenario.**
 
 ---
 
@@ -21,7 +19,8 @@ The Biwin's reputation as the strongest consumer NVMe holds only for bursts unde
 |---|---|---:|---:|---|---|
 | K5 | LLaMA-3.1-70B | 4 | 180 s | force NVMe | Single-request large-entry latency |
 | K4 | LLaMA-3.1-8B | 16 | 120 s | force NVMe | High-concurrency small-entry throughput |
-| K4 GC drift | LLaMA-3.1-8B | 16 | **1200 s** | force NVMe | Sustained-state GC cliff detection |
+| K4 GC drift | LLaMA-3.1-8B | 16 | 1200 s | force NVMe | Sustained-state GC cliff detection |
+| K4 30-min drift | LLaMA-3.1-8B | 16 | 1800 s (Biwin/Seagate) / 900 s (ZhiTai/WD) | force NVMe | Continued degradation past 20 min |
 
 All tests used BurstGPT trace replay with `--trace-speedup 1000`, seed=42, identical disk-cache directories.
 
@@ -95,23 +94,26 @@ Right two panels: Biwin is fastest on read service time (r_await median 0.38 ms)
 
 ### 🥇 Seagate FC530 — Recommended for sustained serving
 - Largest effective SLC cache (cliff at 8.1 min).
-- Best write service time across all metrics (24 ms w_await p99).
-- Read BW converges with Biwin at 1.91 GB/s after 20 min — *still strong*.
+- Best write service time across all metrics (24 ms w_await p99 at 20 min, 213 ms at 30 min).
+- Read BW converges with Biwin at 1.91 GB/s (20 min) → 1.54 GB/s (30 min) — *still strong*.
+- Shallower GC stalls than Biwin at long durations.
 - Phison E18 + high-end NAND + DRAM holds up under random IO.
 
 ### 🥈 Biwin X570 — Recommended for burst-only serving
 - Best peak BW (3.14 GB/s in K4 burst, 4.9 GB/s in 30-s cliff peak).
 - Best read r_await (0.38 ms).
 - *But:* SLC cache runs out at 2.9 min — not suitable for >5 min sessions.
+- At 30 min, BW has degraded to 1.57 GB/s — equivalent to Seagate within noise.
+- Exhibits 5-min BW-zero events every 10 min after SLC exhaustion (similar to Seagate but deeper).
 
 ### 🥉 ZhiTai Ti600 — Not recommended
-- Lowest K4 GC drift BW (1.01 GB/s).
-- Worst write P99 (725 ms) — every eviction is a multi-hundred-ms stall.
+- Lowest K4 GC drift BW (1.01 GB/s at 20 min).
+- Worst write P99 (725 ms at 20 min, 607 ms at 30 min) — every eviction is a multi-hundred-ms stall.
 - YMTC NAND cannot sustain random write at production rates.
 
 ### 4️⃣ WD SN570 — Not recommended
 - DRAM-less architecture limits throughput from the start (1.25 GB/s K4 GC drift).
-- Write P99 of 605 ms — comparable to ZhiTai.
+- Write P99 of 480 ms at 20 min — comparable to ZhiTai.
 - Avoid for any KV cache offload workload.
 
 ---
@@ -134,6 +136,7 @@ Right two panels: Biwin is fastest on read service time (r_await median 0.38 ms)
 | `kv-cache-4disk-K5-headline-2026-06-10.md` | K5 (70B, 180 s) detailed results |
 | `kv-cache-4disk-K4-headline-2026-06-10.md` | K4 (8B×16, 120 s) detailed results |
 | `kv-cache-4disk-K4-gc-drift-2026-06-10.md` | K4 GC drift (1200 s) detailed results |
+| `kv-cache-4disk-K4-30min-drift-2026-06-10.md` | K4 30-min drift (1800 s / 900 s) |
 | `kv-cache-io-pattern-analysis-2026-06-10.md` | IO pattern analysis with iostat |
 
 ---
@@ -141,11 +144,13 @@ Right two panels: Biwin is fastest on read service time (r_await median 0.38 ms)
 ## Raw data
 
 ```
-results/cross_vendor/kv_cache_k5_only/   — K5 (180 s)
-results/cross_vendor/kv_cache_k4_only/   — K4 (120 s)
-results/cross_vendor/kv_cache_k4_gc_drift/ — K4 GC drift (1200 s)
-docs/assets/charts/                       — 6 matplotlib charts used in this report
-docs/assets/kv_cache_gc_drift_bw_trend.txt — ASCII backup of BW trends
-scripts/render_kv_cache_charts.py         — regenerate all charts
-scripts/analyze_kv_cache_iostat.py        — regenerate IO analysis JSON
+results/cross_vendor/kv_cache_k5_only/      — K5 (180 s)
+results/cross_vendor/kv_cache_k4_only/      — K4 (120 s)
+results/cross_vendor/kv_cache_k4_gc_drift/  — K4 GC drift (1200 s)
+results/cross_vendor/kv_cache_k4_30min_drift/ — K4 30-min drift (1800 s / 900 s)
+docs/assets/charts/                          — 8 matplotlib charts used in this report
+docs/assets/kv_cache_gc_drift_bw_trend.txt   — ASCII backup of BW trends
+scripts/render_kv_cache_charts.py            — regenerate charts 1–6
+scripts/render_30min_charts.py               — regenerate charts 7–8
+scripts/analyze_kv_cache_iostat.py           — regenerate IO analysis JSON
 ```
