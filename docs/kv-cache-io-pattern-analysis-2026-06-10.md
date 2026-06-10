@@ -4,12 +4,15 @@
 **Goal:** Characterize the IO access pattern produced by LLM KV cache offload, and quantify how each SSD reacts to it.
 
 Companion to: `kv-cache-4disk-K4-gc-drift-2026-06-10.md`
+Charts: `docs/assets/charts/` (1–6)
 
 ---
 
 ## TL;DR
 
 **LLM KV cache offload produces pure random IO, not sequential streaming.**
+
+![IO pattern boxplots — request size, await](assets/charts/04_io_pattern_boxplots.png)
 
 - Read request size: **~125 kB** (~30 × 4K pages) — fixed by the LLaMA-3.1-8B KV entry footprint.
 - Write request size: **~115 kB** — slightly smaller than reads (entry metadata vs full page).
@@ -49,6 +52,9 @@ The KV cache pattern sits in the worst quadrant: too random to exploit sequentia
 **All four disks show identical request-size distributions** (within 1 kB). This is expected — the request size is determined by the application (KV cache entry size, set by the model architecture), not by the disk. The fact that read median ≈ 125 kB and write median ≈ 115 kB is the fingerprint of LLaMA-3.1-8B KV cache offload.
 
 ### Randomness indicators
+
+![Read service time drift over 20 min](assets/charts/02_k4_gc_p99_drift.png)
+![Write service time drift over 20 min (log scale)](assets/charts/06_write_p99_drift.png)
 
 | Disk | %rrqm median | %rrqm p99 | %wrqm median | %wrqm p99 | Verdict |
 |---|---:|---:|---:|---:|---|
@@ -92,6 +98,8 @@ The KV cache pattern sits in the worst quadrant: too random to exploit sequentia
 ## GC cliff timing (cliff detection)
 
 Detected by sustained 20 % drop in read BW after 2-min warmup, with 30-s smoothing window.
+
+![Read bandwidth over 20 min — GC cliff detection per disk](assets/charts/03_cliff_detection.png)
 
 | Disk | Cliff time (s) | Cliff time (min) | Peak BW (MB/s) | Post-cliff BW (MB/s) | Drop |
 |---|---:|---:|---:|---:|---:|
