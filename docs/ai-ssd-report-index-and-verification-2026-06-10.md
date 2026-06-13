@@ -28,15 +28,17 @@
 
 | 优先级 | 报告 | 状态 | 用途 |
 |---|---|---|---|
-| 1 | `docs/kvcache-ai-ssd-product-prestudy-complete-2026-06-08.md` | 已修正 | KV Cache + AI SSD 产品预研总入口 |
-| 2 | `docs/kvcache-saturation-points-2026-06-08.md` | 已修正 | 70B users12 / 8B users32 饱和边界 |
-| 3 | `docs/kvcache-long-steady-state-2026-06-09.md` | 已修正措辞 | 30 分钟长稳态和 GC drift |
-| 4 | `docs/cross-vendor-nvme-comparison-2026-06-09.md` | 已修正 caveat | 四盘横向对比 |
-| 5 | `docs/biwin-x570-ssd-characterization-2026-06-08.md` | 已核验 | BIWIN X570 Gen5/TLC-like/SLC cache 基础判断 |
-| 6 | `docs/biwin-x570-slc-steady-state-vs-fresh-2026-06-09.md` | 可用，需单次样本 caveat | BIWIN fresh vs steady SLC cache |
-| 7 | `docs/biwin-x570-slc-mixed-rw-2026-06-09.md` | 可用，需单次样本 caveat | mixed R/W 下 SLC cache 价值 |
-| 8 | `docs/kvcache-pagecache-sensitivity-2026-06-09.md` | 可用，需 order-effect caveat | DRAM page cache 敏感性 |
-| 9 | `docs/ai-ssd-multidisk-validation-plan-2026-06-10.md` | 新增 | 多盘对比设计与 AI SSD 产品验证计划 |
+| 1 | `docs/ai-ssd-kvcache-integrated-prestudy-report-2026-06-13.md` | 新增 | 6月13日整合大报告，作为当前主入口 |
+| 2 | `docs/ai-ssd-kvcache-complete-archive-report-2026-06-13.md` | 新增 | 完整实验归档，覆盖主线和支线测试 |
+| 3 | `docs/kvcache-ai-ssd-product-prestudy-complete-2026-06-08.md` | 已修正 | KV Cache + AI SSD 产品预研总入口 |
+| 4 | `docs/kvcache-saturation-points-2026-06-08.md` | 已修正 | 70B users12 / 8B users32 饱和边界 |
+| 5 | `docs/kvcache-long-steady-state-2026-06-09.md` | 已修正措辞 | 30 分钟长稳态和 GC drift |
+| 6 | `docs/cross-vendor-nvme-comparison-2026-06-09.md` | 已修正 caveat | 四盘横向对比 |
+| 7 | `docs/biwin-x570-ssd-characterization-2026-06-08.md` | 已核验 | BIWIN X570 Gen5/TLC-like/SLC cache 基础判断 |
+| 8 | `docs/biwin-x570-slc-steady-state-vs-fresh-2026-06-09.md` | 可用，需单次样本 caveat | BIWIN fresh vs steady SLC cache |
+| 9 | `docs/biwin-x570-slc-mixed-rw-2026-06-09.md` | 可用，需单次样本 caveat | mixed R/W 下 SLC cache 价值 |
+| 10 | `docs/kvcache-pagecache-sensitivity-2026-06-09.md` | 可用，需 order-effect caveat | DRAM page cache 敏感性 |
+| 11 | `docs/ai-ssd-multidisk-validation-plan-2026-06-10.md` | 新增 | 多盘对比设计与 AI SSD 产品验证计划 |
 
 历史报告：
 
