@@ -25,6 +25,7 @@ code or running benchmarks:
 | Document | What it covers |
 |----------|----------------|
 | **[docs/README.md](docs/README.md)** | Complete project overview: all four benchmark workloads, document reference, object storage library guides, and quick-link index to every test script |
+| **[docs/ai-ssd-kvcache-integrated-prestudy-report-2026-06-13.md](docs/ai-ssd-kvcache-integrated-prestudy-report-2026-06-13.md)** | AI-SSD integrated pre-study: 4-disk cross-vendor recommendations + **14 visualization charts in [docs/assets/](docs/assets/)** |
 | **[tests/README.md](tests/README.md)** | Everything needed to run tests: environment setup, unit tests, integration tests, object-store performance scripts, and how pytest is configured |
 
 Additional quick links:
@@ -208,6 +209,53 @@ See [vdb_benchmark/README.md](vdb_benchmark/README.md) for more details.
 The kvcache category supports emulation of a context cache as used by an LLM.
 
 See [kv_cache_benchmark/README.md](kv_cache_benchmark/README.md) for more details.
+
+#### KV-Cache Visualization (cross-vendor 4-disk)
+
+> 14 张 IO profiling 图, 全部已 commit 入 `docs/assets/` (本地可访问)。
+
+**Cross-vendor 4 盘对比图** ([docs/assets/charts/](docs/assets/charts/)):
+
+| # | 文件 | 故事 |
+|---|---|---|
+| 01 | [01_k4_k5_bw_compare.png](docs/assets/charts/01_k4_k5_bw_compare.png) | **核心叙事**: K4/K5/K4-GC-drift read BW (GB/s) 4 盘 — Biwin X570 第一 |
+| 02 | [02_k4_gc_p99_drift.png](docs/assets/charts/02_k4_gc_p99_drift.png) | K4 GC-drift 1200s read p99 latency 漂移 — 揭示长稳态退化 |
+| 03 | [03_cliff_detection.png](docs/assets/charts/03_cliff_detection.png) | read BW 时序 + cliff marker (SLC cache 跌落点) |
+| 04 | [04_io_pattern_boxplots.png](docs/assets/charts/04_io_pattern_boxplots.png) | request size + await boxplots 4 盘 |
+| 05 | [05_summary_ranking.png](docs/assets/charts/05_summary_ranking.png) | **决策图**: 6-metric 4 盘 ranking heatmap |
+| 06 | [06_write_p99_drift.png](docs/assets/charts/06_write_p99_drift.png) | write service-time 漂移 (GC 影响最显著的指标) |
+| 07 | [07_long_drift_compare.png](docs/assets/charts/07_long_drift_compare.png) | K4 30-min 4 盘长稳态对比 — **Biwin/Seagate 30 min 后实际 TIED** |
+| 08 | [08_duration_bars.png](docs/assets/charts/08_duration_bars.png) | K4 多窗口 BW 柱状图 |
+
+**IO profiling / 业务级图** ([docs/assets/kvcache-io-profiling/](docs/assets/kvcache-io-profiling/)):
+
+| # | 文件 | 故事 |
+|---|---|---|
+| 01 | [burstgpt_users_gradient_latency.png](docs/assets/kvcache-io-profiling/burstgpt_users_gradient_latency.png) | BurstGPT users × latency 渐变 |
+| 02 | [iostat_await_utilization.png](docs/assets/kvcache-io-profiling/iostat_await_utilization.png) | iostat await / util 时间序列 |
+| 03 | [kv_object_device_p95_comparison.png](docs/assets/kvcache-io-profiling/kv_object_device_p95_comparison.png) | KV object vs device p95 latency 对比 |
+| 04 | [object_latency_vs_d2c_read.png](docs/assets/kvcache-io-profiling/object_latency_vs_d2c_read.png) | object latency vs D2C read |
+| 05 | [storage_traffic_workload_comparison.png](docs/assets/kvcache-io-profiling/storage_traffic_workload_comparison.png) | storage traffic × workload 对比 |
+
+**复现**:
+
+```bash
+# 图 01-06: 4 盘 K4/K5 决策图
+source .venv/bin/activate
+python ~/.hermes/skills/mlperf-storage-bench/scripts/render_kv_cache_charts.py
+# 输出: docs/assets/charts/01-06 (覆盖式重生成, 可重复)
+```
+
+> 注: 07/08 (30-min drift) 不是脚本出的, 来自 commit `2060baa` (K4 30-min 长稳态测试)。
+
+**对应的文字报告**:
+- [docs/kv-cache-4disk-K4-headline-2026-06-10.md](docs/kv-cache-4disk-K4-headline-2026-06-10.md) — K4 4 盘 headline (图 01/05)
+- [docs/kv-cache-4disk-K5-headline-2026-06-10.md](docs/kv-cache-4disk-K5-headline-2026-06-10.md) — K5 4 盘 headline (70B 模型)
+- [docs/kv-cache-4disk-K4-30min-drift-2026-06-10.md](docs/kv-cache-4disk-K4-30min-drift-2026-06-10.md) — K4 30-min drift (图 07/08)
+- [docs/kv-cache-cross-vendor-2026-06-10.md](docs/kv-cache-cross-vendor-2026-06-10.md) — 跨 vendor 综合报告 (图 02/03/06)
+- [docs/kv-cache-io-pattern-analysis-2026-06-10.md](docs/kv-cache-io-pattern-analysis-2026-06-10.md) — IO pattern 分析 (图 04)
+- [docs/kvcache-io-profiling-visual-analysis-2026-06-08.md](docs/kvcache-io-profiling-visual-analysis-2026-06-08.md) — IO profiling 业务级图
+- [docs/ai-ssd-kvcache-integrated-prestudy-report-2026-06-13.md](docs/ai-ssd-kvcache-integrated-prestudy-report-2026-06-13.md) — AI SSD 集成预研报告 (推荐起点)
 
 
 
