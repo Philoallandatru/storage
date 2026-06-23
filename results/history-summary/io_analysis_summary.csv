@@ -1,0 +1,5 @@
+disk,samples,cliff_s,cliff_min,read_req_median_kb,read_req_p99_kb,write_req_median_kb,write_req_p99_kb,rrqm_median_pct,rrqm_p99_pct,wrqm_median_pct,wrqm_p99_pct,r_await_median_ms,r_await_p99_ms,w_await_median_ms,w_await_p99_ms,aqu_median,aqu_p95,aqu_p99,r_bw_first_mb_s,r_bw_last_mb_s,w_bw_first_mb_s,w_bw_last_mb_s,source
+Biwin X570,1206,175,2.91667,124.4,126.69,113.68,122.63,0,0,0.14,76.18,0.38,0.67,14.26,57.23,30.38,74.83,107.98,2957.24,490.778,279.368,90.7111,results/cross_vendor/kv_cache_k4_gc_drift/_analysis/iostat_analysis.json
+Seagate FC530,1205,483,8.05,124.41,126.15,113.05,120.55,0,0,0.1,4.75,0.8,1,7.07,24.1,28.07,48,58.03,2614.67,544.622,228.197,74.8306,results/cross_vendor/kv_cache_k4_gc_drift/_analysis/iostat_analysis.json
+ZhiTai Ti600,1208,337,5.61667,124.69,127.06,115.94,126.39,0,0,0.13,6.37,0.61,1.2,119.51,511.24,102.38,266.43,328.03,1676.1,514.482,145.008,86.1134,results/cross_vendor/kv_cache_k4_gc_drift/_analysis/iostat_analysis.json
+WD SN570,1211,469,7.81667,124.82,127.12,115.67,125.81,0,0,0.13,5.37,1.57,4.09,59.03,604.8,88.76,235.21,286.92,1492.71,817.148,130.373,132.043,results/cross_vendor/kv_cache_k4_gc_drift/_analysis/iostat_analysis.json
