@@ -97,6 +97,11 @@ results/kvcache-profile/**
 !results/kvcache-profile/io_lba_pattern/*.png
 !results/kvcache-profile/io_lba_pattern/*.json
 !results/kvcache-profile/io_lba_pattern/*.md
+# Key time-locality analysis (replaces LBA scatter with hot-to-cold ranking)
+!results/kvcache-profile/key_locality/
+!results/kvcache-profile/key_locality/*.png
+!results/kvcache-profile/key_locality/*.json
+!results/kvcache-profile/key_locality/*.md
 # fio iodepth sweep artifacts (P0 #3 of KV-Cache AI SSD pre-study)
 !results/kvcache-profile/fio_sweep/
 !results/kvcache-profile/fio_sweep/sweep_summary.csv

@@ -1,0 +1,8 @@
+{
+  "intra_token_pct": 83.3675829444995,
+  "inter_token_pct": 8.49068007639678,
+  "inter_request_pct": 8.141736979103706,
+  "intra_token_median_ms": 0.025033950805664062,
+  "inter_token_median_ms": 10.68103313446045,
+  "inter_request_median_ms": 16252.098083496094
+}
