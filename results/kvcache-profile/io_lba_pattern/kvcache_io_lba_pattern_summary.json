@@ -1,0 +1,14 @@
+{
+  "trace": "results/kvcache-profile/io_trace_sharegpt_8b_tp8_cpu0p5g_users2_300s.csv.zst",
+  "total_io": 127477,
+  "duration_s": 301.1456310749054,
+  "simulated_lba_span_gib": 2.02154541015625,
+  "stats_ssd_reads": {
+    "same_key_pct": 69.56378095833678,
+    "sequential_1mb_pct": 69.96495616570895,
+    "random_100mb_plus_pct": 26.525940696864936,
+    "median_delta_mb": 0.0,
+    "p95_delta_mb": 998.09375,
+    "p99_delta_mb": 1430.828125
+  }
+}
