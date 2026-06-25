@@ -42,11 +42,11 @@ import numpy as np
 
 # Same colour palette as plot_kv_cache_io_randomness.py for visual consistency.
 COLOR = {
-    "Read-Decode-Tier-1":  "#1f77b4",   # VRAM decode (blue)
     "Read-Decode-Tier-2":  "#d62728",   # SSD  decode (red)
+    "Read-Decode-Tier-1":  "#1f77b4",   # CPU  decode (blue)
     "Read-Decode-Tier-0":  "#9467bd",   # meta  decode (purple)
-    "Read-Evict-Tier-1":   "#ff7f0e",   # VRAM evict read (orange)
-    "Write-Prefill-Tier-1": "#2ca02c",  # VRAM prefill write (green)
+    "Read-Evict-Tier-1":   "#ff7f0e",   # CPU  evict read (orange)
+    "Write-Prefill-Tier-1": "#2ca02c",  # CPU  prefill write (green)
     "Write-Evict-Tier-2":  "#8c564b",   # SSD  evict write (brown)
     "Write-Prefill-Tier-2": "#e377c2",  # SSD  prefill (rare, pink)
     "Other":               "#7f7f7f",
@@ -114,8 +114,9 @@ def plot_lba_scatter(ios: list[dict], t0: float, duration_s: float, out: Path, t
     ax.set_xlabel("Time since trace start (s)", fontsize=12)
     ax.set_ylabel("Simulated LBA (GiB)", fontsize=12)
     ax.set_title(
-        f"KV cache per-request LBA pattern  ({len(ios):,} IO / {duration_s:.0f}s / 973 unique keys)",
-        fontsize=13)
+        f"KV cache per-request LBA pattern  ({len(ios):,} IO / {duration_s:.0f}s / 973 unique keys)\n"
+        f"Tier-1 = CPU RAM, Tier-2 = NVMe SSD, Tier-0 (GPU VRAM) has no real data in this trace",
+        fontsize=12)
     ax.grid(True, alpha=0.3)
     ax.legend(loc="upper left", fontsize=9, framealpha=0.9, ncol=2)
     fig.tight_layout()
