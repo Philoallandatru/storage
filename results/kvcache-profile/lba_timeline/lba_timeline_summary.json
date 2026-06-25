@@ -1,0 +1,35 @@
+{
+  "data_source": "bpftrace @d[dev, sector]: timestamp_ns",
+  "dedup_warning": "同一 (dev, sector) 仅记最新访问, 不是 per-IO log",
+  "n_events": 969,
+  "time_range_s": 311.801673151,
+  "lba_min_gb": 0.0,
+  "lba_max_gb": 952.6100807189941,
+  "lba_total_range_gb": 952.6100807189941,
+  "gap_distribution_mb": {
+    "min": 0.0078125,
+    "median": 3.23828125,
+    "mean": 23227.869390818698,
+    "p95": 269133.13515625,
+    "p99": 376248.8915625,
+    "max": 916862.453125
+  },
+  "sequential_rate_by_threshold": {
+    "gap_lt_1mb_pct": 29.028925619834713,
+    "gap_lt_10mb_pct": 66.52892561983471,
+    "gap_lt_100mb_pct": 81.50826446280992,
+    "gap_ge_100mb_pct": 18.49173553719008
+  },
+  "direction_distribution": {
+    "forward_pct": 92.25206611570248,
+    "backward_pct": 7.747933884297521
+  },
+  "directional_runs": {
+    "n_forward_runs": 68,
+    "mean_forward_run_length": 13.132352941176471,
+    "max_forward_run_length": 82,
+    "n_backward_runs": 68,
+    "mean_backward_run_length": 1.1029411764705883,
+    "max_backward_run_length": 4
+  }
+}

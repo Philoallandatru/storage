@@ -162,6 +162,11 @@ results/kvcache-profile/profiling/test_*/
 !results/kvcache-profile/pagecache_sweep/*.csv
 !results/kvcache-profile/pagecache_sweep/*/summary.csv
 !results/kvcache-profile/pagecache_sweep/*/analysis.md
+# Device-side LBA time-series analysis (bpftrace @d[dev, sector]: ts)
+!results/kvcache-profile/lba_timeline/
+!results/kvcache-profile/lba_timeline/*.png
+!results/kvcache-profile/lba_timeline/*.json
+!results/kvcache-profile/lba_timeline/*.md
 # Cross-vendor T4 GC drift summary JSON (small, derived from raw iostat.txt)
 !results/cross_vendor/
 !results/cross_vendor/t4_gc_drift_summary.json
