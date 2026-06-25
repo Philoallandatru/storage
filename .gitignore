@@ -102,6 +102,11 @@ results/kvcache-profile/**
 !results/kvcache-profile/key_locality/*.png
 !results/kvcache-profile/key_locality/*.json
 !results/kvcache-profile/key_locality/*.md
+# Device-side IO analysis from bpftrace storage_latency_stack.bt
+!results/kvcache-profile/device_io/
+!results/kvcache-profile/device_io/*.png
+!results/kvcache-profile/device_io/*.json
+!results/kvcache-profile/device_io/*.md
 # fio iodepth sweep artifacts (P0 #3 of KV-Cache AI SSD pre-study)
 !results/kvcache-profile/fio_sweep/
 !results/kvcache-profile/fio_sweep/sweep_summary.csv
