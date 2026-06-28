@@ -4,8 +4,8 @@
 plot_kv_cache_lba_timeline.py
 ==============================
 
-设备端 LBA 时间序列分析 — 把 bpftrace 的 `@d[dev, sector]: ts` 还原成"按时间排序的访问序列",
-量化设备层 IO 是顺序 vs 随机,以及随时间如何变化。
+设备端 LBA last-touch 分析 — 把 bpftrace 的 `@d[dev, sector]: ts` 解析成
+"唯一 sector 的最后访问时间"散点图,观察哪些 LBA 被触达过。
 
 数据源
 ------
@@ -13,19 +13,16 @@ bpftrace_sharegpt_*.txt 里 `@d[dev, sector]: timestamp_ns` 格式:
     @d[271581194, 1433281280]: 3831793992320
 含义: (dev_id, sector) 位置最后一次被访问的时间戳(纳秒)。
 
-**重要限制**: `@d[]` 是 bpftrace 的 dedup histogram — 同一个 LBA 位置只保留最后一次访问。
-所以本分析看到的是"最近访问时间序列",而不是完整的 per-IO log。
-但即使这样,仍然可以量化:
-- LBA 跳跃距离分布 (gap)
-- 顺序 vs 随机比例
-- LBA 访问范围随时间的演变
-- 顺序流长度分布
+**重要限制**: `@d[]` 是 bpftrace map — 同一个 LBA 位置只保留最后一次访问。
+所以本分析看到的是 last-touch map, 不是完整 per-IO log。
+gap / direction / run 图只是在 last-touch map 上做的派生探索,不能当作真实 per-IO
+顺序率或真实 forward run。
 
 输出图 (4 张):
-  1. lba_timeline_scatter.png  — (时间, LBA) 散点 + 直方图
-  2. lba_timeline_sequentiality.png  — LBA gap CDF + 顺序率分时窗
-  3. lba_timeline_runs.png  — 顺序流长度分布 + Forward/Backward 直方图
-  4. lba_timeline_window_coverage.png  — 滑动窗口下 LBA range 变化
+  1. lba_timeline_scatter.png  — last-touch 时间 vs LBA 散点 + 直方图
+  2. lba_timeline_sequentiality.png  — last-touch map 的 gap CDF + 派生比例
+  3. lba_timeline_runs.png  — last-touch map 的 direction/run 探索图
+  4. lba_timeline_window_coverage.png  — last-touch map 的窗口 LBA range
 
 Usage:
     python3 scripts/plot_kv_cache_lba_timeline.py \
@@ -71,7 +68,7 @@ def parse_bpftrace_lba(bpftrace_path: str) -> list:
                     'dev': dev,
                     'sector': sector,
                     'sector_bytes': sector * 512,
-                    'lba_gb': sector * 512 / 1024 / 1024 / 1024,
+                    'lba_gib': sector * 512 / 1024 / 1024 / 1024,
                     'ts_ns': ts_ns,
                 })
     if not events:
@@ -85,31 +82,31 @@ def parse_bpftrace_lba(bpftrace_path: str) -> list:
 
 
 def compute_gaps(events: list) -> tuple:
-    """算 LBA gap (按时间顺序的相邻 LBA 差) + 时间间隔."""
+    """算 last-touch map 中按最后访问时间排序后的相邻 LBA 差."""
     abs_gaps_bytes = []
-    signed_diffs_gb = []
+    signed_diffs_gib = []
     time_deltas_ms = []
     for i in range(1, len(events)):
         gap = abs(events[i]['sector'] - events[i-1]['sector']) * 512
         abs_gaps_bytes.append(gap)
         signed_diff = (events[i]['sector'] - events[i-1]['sector']) * 512 / 1024 / 1024 / 1024
-        signed_diffs_gb.append(signed_diff)
+        signed_diffs_gib.append(signed_diff)
         dt_ms = (events[i]['ts_ns'] - events[i-1]['ts_ns']) / 1e6
         time_deltas_ms.append(dt_ms)
-    return abs_gaps_bytes, signed_diffs_gb, time_deltas_ms
+    return abs_gaps_bytes, signed_diffs_gib, time_deltas_ms
 
 
-def find_directional_runs(signed_diffs_gb: list) -> list:
+def find_directional_runs(signed_diffs_gib: list) -> list:
     """找连续同方向的访问 run.
     返回: [(direction, run_length), ...]
     direction: +1 (forward, LBA 递增), -1 (backward, LBA 递减)
     """
-    if not signed_diffs_gb:
+    if not signed_diffs_gib:
         return []
     runs = []
-    direction = 1 if signed_diffs_gb[0] > 0 else -1
+    direction = 1 if signed_diffs_gib[0] > 0 else -1
     run_len = 1
-    for d in signed_diffs_gb[1:]:
+    for d in signed_diffs_gib[1:]:
         if d == 0:
             continue  # 跳过同位置 (dedup 限制下应该 0 个)
         cur_dir = 1 if d > 0 else -1
@@ -131,13 +128,13 @@ def plot_timeline_scatter(events: list, out_dir: str):
     # 顶部: LBA 直方图 (按时间分 50 桶)
     ax_hist = fig.add_subplot(gs[0, 0])
     times = np.array([e['t_s'] for e in events])
-    lbas = np.array([e['lba_gb'] for e in events])
+    lbas = np.array([e['lba_gib'] for e in events])
 
     # 按时间画颜色梯度
     scatter = ax_hist.scatter(times, lbas, c=times, cmap='plasma', s=8, alpha=0.7, edgecolors='none')
     ax_hist.set_xlabel('时间 (秒)', fontsize=11)
-    ax_hist.set_ylabel('LBA (GB)', fontsize=11)
-    ax_hist.set_title(f'设备端 LBA 时间序列 (n={len(events)}, dedup heatmap, 同一 (dev, sector) 仅记最新)',
+    ax_hist.set_ylabel('LBA (GiB)', fontsize=11)
+    ax_hist.set_title(f'LBA last-touch map (n={len(events)}, 同一 (dev, sector) 仅记最新)',
                      fontsize=12, weight='bold')
     ax_hist.grid(True, alpha=0.3)
     plt.colorbar(scatter, ax=ax_hist, label='时间 (秒)', fraction=0.04)
@@ -172,8 +169,8 @@ def plot_timeline_scatter(events: list, out_dir: str):
     ax_cov.plot(centers, mins, 'b-', lw=1, label='min LBA')
     ax_cov.plot(centers, maxs, 'r-', lw=1, label='max LBA')
     ax_cov.set_xlabel('时间 (秒)', fontsize=11)
-    ax_cov.set_ylabel('LBA (GB)', fontsize=11)
-    ax_cov.set_title(f'滑动窗口 ({int(window)}s) LBA range 演变 — 是否存在"扫描模式"?', fontsize=12, weight='bold')
+    ax_cov.set_ylabel('LBA (GiB)', fontsize=11)
+    ax_cov.set_title(f'last-touch 窗口 ({int(window)}s) LBA range — 非 per-IO 工作集', fontsize=12, weight='bold')
     ax_cov.grid(True, alpha=0.3)
     ax_cov.legend(loc='upper right')
 
@@ -185,60 +182,60 @@ def plot_timeline_scatter(events: list, out_dir: str):
     return mins, maxs, centers
 
 
-def plot_sequentiality(abs_gaps_bytes: list, signed_diffs_gb: list, out_dir: str):
-    """图 2: LBA gap CDF + 顺序率随时间变化"""
+def plot_sequentiality(abs_gaps_bytes: list, signed_diffs_gib: list, out_dir: str):
+    """图 2: last-touch map 的 LBA gap CDF + 派生比例."""
     fig, axes = plt.subplots(1, 3, figsize=(16, 5))
 
     # 左: CDF (log scale)
-    gaps_mb = np.array([g/1024/1024 for g in abs_gaps_bytes])
-    sorted_gaps = np.sort(gaps_mb)
+    gaps_mib = np.array([g/1024/1024 for g in abs_gaps_bytes])
+    sorted_gaps = np.sort(gaps_mib)
     cdf_y = np.arange(1, len(sorted_gaps) + 1) / len(sorted_gaps)
     ax = axes[0]
     ax.plot(sorted_gaps, cdf_y, 'b-', lw=2)
     ax.set_xscale('log')
-    ax.set_xlabel('LBA gap (MB, log scale)', fontsize=11)
+    ax.set_xlabel('LBA gap (MiB, log scale)', fontsize=11)
     ax.set_ylabel('CDF', fontsize=11)
-    ax.set_title('LBA 跳跃距离 CDF', fontsize=12, weight='bold')
+    ax.set_title('last-touch LBA gap CDF\n(不是真实 per-IO gap)', fontsize=12, weight='bold')
     ax.grid(True, alpha=0.3, which='both')
-    # 标注 1MB 阈值
-    ax.axvline(1, color='red', ls='--', alpha=0.7, label='1 MB 顺序阈值')
-    ax.axvline(10, color='orange', ls='--', alpha=0.7, label='10 MB')
-    ax.axvline(100, color='purple', ls='--', alpha=0.7, label='100 MB')
+    # 标注 1MiB 阈值
+    ax.axvline(1, color='red', ls='--', alpha=0.7, label='1 MiB 阈值')
+    ax.axvline(10, color='orange', ls='--', alpha=0.7, label='10 MiB')
+    ax.axvline(100, color='purple', ls='--', alpha=0.7, label='100 MiB')
     # 计算顺序比例
-    seq_1mb = (gaps_mb < 1).sum() / len(gaps_mb) * 100
-    seq_10mb = (gaps_mb < 10).sum() / len(gaps_mb) * 100
-    seq_100mb = (gaps_mb < 100).sum() / len(gaps_mb) * 100
+    seq_1mib = (gaps_mib < 1).sum() / len(gaps_mib) * 100
+    seq_10mib = (gaps_mib < 10).sum() / len(gaps_mib) * 100
+    seq_100mib = (gaps_mib < 100).sum() / len(gaps_mib) * 100
     ax.text(0.95, 0.05,
-            f'gap < 1 MB:   {seq_1mb:.1f}%\n'
-            f'gap < 10 MB:  {seq_10mb:.1f}%\n'
-            f'gap < 100 MB: {seq_100mb:.1f}%\n'
-            f'gap ≥ 100 MB: {100-seq_100mb:.1f}% (随机跳跃)',
+            f'gap < 1 MiB:   {seq_1mib:.1f}%\n'
+            f'gap < 10 MiB:  {seq_10mib:.1f}%\n'
+            f'gap < 100 MiB: {seq_100mib:.1f}%\n'
+            f'gap >= 100 MiB: {100-seq_100mib:.1f}% (last-touch 大跨度)',
             transform=ax.transAxes, ha='right', va='bottom',
             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8),
-            fontsize=10, family='monospace')
+            fontsize=10)
     ax.legend(loc='upper left', fontsize=9)
 
     # 中: Direction 分布 (绝对值 log 直方图 + 方向比例)
     ax = axes[1]
-    abs_diffs_gb = [abs(d) for d in signed_diffs_gb if d != 0]
+    abs_diffs_gib = [abs(d) for d in signed_diffs_gib if d != 0]
     # 用 log bins 让大部分小 gap 也能看见
-    log_bins = np.logspace(np.log10(0.001), np.log10(max(abs_diffs_gb)+1), 60)
-    ax.hist(abs_diffs_gb, bins=log_bins, color='steelblue', edgecolor='white', alpha=0.8)
+    log_bins = np.logspace(np.log10(0.001), np.log10(max(abs_diffs_gib)+1), 60)
+    ax.hist(abs_diffs_gib, bins=log_bins, color='steelblue', edgecolor='white', alpha=0.8)
     ax.set_xscale('log')
-    ax.set_xlabel('|LBA 差| (GB, log scale)', fontsize=11)
+    ax.set_xlabel('|LBA 差| (GiB, log scale)', fontsize=11)
     ax.set_ylabel('频次', fontsize=11)
-    ax.set_title('LBA 跳跃绝对值分布\n(不管方向, 看跳跃距离)', fontsize=12, weight='bold')
+    ax.set_title('last-touch LBA 差绝对值分布\n(不代表真实 IO 跳跃)', fontsize=12, weight='bold')
     ax.grid(True, alpha=0.3, which='both')
-    n_forward = sum(1 for d in signed_diffs_gb if d > 0)
-    n_backward = sum(1 for d in signed_diffs_gb if d < 0)
+    n_forward = sum(1 for d in signed_diffs_gib if d > 0)
+    n_backward = sum(1 for d in signed_diffs_gib if d < 0)
     ax.text(0.95, 0.95,
-            f'Forward (LBA↑): {n_forward} ({n_forward/len(signed_diffs_gb)*100:.1f}%)\n'
-            f'Backward (LBA↓): {n_backward} ({n_backward/len(signed_diffs_gb)*100:.1f}%)\n\n'
-            f'中位 |gap|: {np.median(abs_diffs_gb):.2f} GB\n'
-            f'p95 |gap|: {np.percentile(abs_diffs_gb, 95):.1f} GB',
+            f'Forward (LBA↑): {n_forward} ({n_forward/len(signed_diffs_gib)*100:.1f}%)\n'
+            f'Backward (LBA↓): {n_backward} ({n_backward/len(signed_diffs_gib)*100:.1f}%)\n\n'
+            f'中位 |gap|: {np.median(abs_diffs_gib):.2f} GiB\n'
+            f'p95 |gap|: {np.percentile(abs_diffs_gib, 95):.1f} GiB',
             transform=ax.transAxes, ha='right', va='top',
             bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8),
-            fontsize=10, family='monospace')
+            fontsize=10)
 
     # 右: 顺序率随时间 (10s 窗口)
     ax = axes[2]
@@ -265,15 +262,15 @@ def plot_sequentiality(abs_gaps_bytes: list, signed_diffs_gb: list, out_dir: str
         if len(in_win) >= 2:
             in_win_sectors = [ev['sector'] for ev in in_win]
             gaps = [abs(in_win_sectors[i] - in_win_sectors[i-1]) * 512 for i in range(1, len(in_win_sectors))]
-            gaps_mb = [g/1024/1024 for g in gaps]
-            seq_rate = sum(1 for g in gaps_mb if g < 1) / len(gaps_mb) * 100
+            gaps_mib = [g/1024/1024 for g in gaps]
+            seq_rate = sum(1 for g in gaps_mib if g < 1) / len(gaps_mib) * 100
             centers.append(ws + window/2)
             seq_rates.append(seq_rate)
 
     ax.plot(centers, seq_rates, 'o-', color='darkgreen', lw=1.5, markersize=4)
     ax.set_xlabel('时间 (秒)', fontsize=11)
-    ax.set_ylabel(f'顺序率 (%) [gap < 1 MB]', fontsize=11)
-    ax.set_title(f'滑动窗口 ({int(window)}s) 顺序率变化', fontsize=12, weight='bold')
+    ax.set_ylabel(f'last-touch gap < 1 MiB (%)', fontsize=11)
+    ax.set_title(f'滑动窗口 ({int(window)}s) 派生 gap 比例', fontsize=12, weight='bold')
     ax.grid(True, alpha=0.3)
     ax.set_ylim(-5, 105)
     ax.axhline(50, color='gray', ls=':', alpha=0.5)
@@ -290,9 +287,9 @@ def plot_sequentiality(abs_gaps_bytes: list, signed_diffs_gb: list, out_dir: str
     print(f"  ✅ {out_path}")
 
 
-def plot_runs(events: list, signed_diffs_gb: list, out_dir: str):
-    """图 3: 顺序流长度分布"""
-    runs = find_directional_runs(signed_diffs_gb)
+def plot_runs(events: list, signed_diffs_gib: list, out_dir: str):
+    """图 3: last-touch map 的 direction/run 派生图."""
+    runs = find_directional_runs(signed_diffs_gib)
     forward_runs = [r[1] for r in runs if r[0] == 1]
     backward_runs = [r[1] for r in runs if r[0] == -1]
 
@@ -303,11 +300,11 @@ def plot_runs(events: list, signed_diffs_gb: list, out_dir: str):
     max_len = max(max(forward_runs) if forward_runs else 0,
                   max(backward_runs) if backward_runs else 0)
     bins = np.arange(1, max_len + 2) - 0.5
-    ax.hist([forward_runs, backward_runs], bins=bins, label=['Forward runs', 'Backward runs'],
+    ax.hist([forward_runs, backward_runs], bins=bins, label=['Forward last-touch runs', 'Backward last-touch runs'],
             color=['steelblue', 'coral'], edgecolor='white', alpha=0.8)
-    ax.set_xlabel('Run length (连续同方向事件数)', fontsize=11)
+    ax.set_xlabel('Run length (last-touch map 连续同方向点数)', fontsize=11)
     ax.set_ylabel('Run 数量', fontsize=11)
-    ax.set_title('顺序流长度分布', fontsize=12, weight='bold')
+    ax.set_title('last-touch direction run 分布\n(不是真实 IO run)', fontsize=12, weight='bold')
     ax.legend()
     ax.grid(True, alpha=0.3)
 
@@ -323,7 +320,7 @@ def plot_runs(events: list, signed_diffs_gb: list, out_dir: str):
         ax.plot(sorted_br, cdf, 'r-', lw=2, label=f'Backward (n={len(backward_runs)})')
     ax.set_xlabel('Run length', fontsize=11)
     ax.set_ylabel('CDF', fontsize=11)
-    ax.set_title('Run 长度 CDF\nForward: 平均扫描多长?', fontsize=12, weight='bold')
+    ax.set_title('Run 长度 CDF\nlast-touch 派生指标', fontsize=12, weight='bold')
     ax.grid(True, alpha=0.3)
     ax.legend()
     if forward_runs:
@@ -337,7 +334,7 @@ def plot_runs(events: list, signed_diffs_gb: list, out_dir: str):
     # 右: Time series of LBA with run coloring
     ax = axes[2]
     times = [e['t_s'] for e in events]
-    lbas = [e['lba_gb'] for e in events]
+    lbas = [e['lba_gib'] for e in events]
     ax.plot(times, lbas, 'k-', lw=0.3, alpha=0.3)
     # 用颜色画 run 段
     idx = 0
@@ -352,14 +349,14 @@ def plot_runs(events: list, signed_diffs_gb: list, out_dir: str):
     # 散点叠加
     ax.scatter(times, lbas, c='black', s=3, alpha=0.5, zorder=5)
     ax.set_xlabel('时间 (秒)', fontsize=11)
-    ax.set_ylabel('LBA (GB)', fontsize=11)
-    ax.set_title(f'LBA 时间序列按 run 上色\n蓝=Forward (LBA↑), 红=Backward (LBA↓)', fontsize=12, weight='bold')
+    ax.set_ylabel('LBA (GiB)', fontsize=11)
+    ax.set_title(f'last-touch LBA 按 direction run 上色\n蓝=Forward, 红=Backward', fontsize=12, weight='bold')
     ax.grid(True, alpha=0.3)
     # 自定义 legend
     from matplotlib.lines import Line2D
     legend_elements = [
-        Line2D([0], [0], color='steelblue', lw=2, label=f'Forward run ({len(forward_runs)} 条, 平均 {np.mean(forward_runs):.1f} events)'),
-        Line2D([0], [0], color='coral', lw=2, label=f'Backward run ({len(backward_runs)} 条, 平均 {np.mean(backward_runs):.1f} events)'),
+        Line2D([0], [0], color='steelblue', lw=2, label=f'Forward last-touch run ({len(forward_runs)} 条, 平均 {np.mean(forward_runs):.1f} points)'),
+        Line2D([0], [0], color='coral', lw=2, label=f'Backward last-touch run ({len(backward_runs)} 条, 平均 {np.mean(backward_runs):.1f} points)'),
     ]
     ax.legend(handles=legend_elements, loc='upper left')
 
@@ -371,12 +368,11 @@ def plot_runs(events: list, signed_diffs_gb: list, out_dir: str):
 
 
 def plot_window_coverage(events: list, out_dir: str):
-    """图 4: 滑动窗口覆盖率分析 (无重叠)
-    不同窗口大小下, 平均访问多少 GB 的 LBA 范围"""
+    """图 4: last-touch map 的滑动窗口 LBA range 分析."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
     times = np.array([e['t_s'] for e in events])
-    lbas = np.array([e['lba_gb'] for e in events])
+    lbas = np.array([e['lba_gib'] for e in events])
     max_t = times.max()
 
     # 左: 不同窗口大小的 coverage
@@ -401,12 +397,12 @@ def plot_window_coverage(events: list, out_dir: str):
                 color='steelblue', markersize=8)
     ax.set_xscale('log')
     ax.set_xlabel('窗口大小 (秒, log)', fontsize=11)
-    ax.set_ylabel('LBA range (GB)', fontsize=11)
-    ax.set_title('不同时间窗口下设备 LBA 覆盖范围', fontsize=12, weight='bold')
+    ax.set_ylabel('LBA range (GiB)', fontsize=11)
+    ax.set_title('不同 last-touch 时间窗口下的 LBA range\n(不是真实工作集)', fontsize=12, weight='bold')
     ax.grid(True, alpha=0.3, which='both')
     # 标注总设备大小
     ax.axhline(lbas.max() - lbas.min(), color='red', ls='--', alpha=0.5,
-               label=f'总 LBA range = {lbas.max()-lbas.min():.0f} GB')
+               label=f'last-touch 总 LBA range = {lbas.max()-lbas.min():.0f} GiB')
     ax.legend()
 
     # 右: LBA min/max 累积 (从开始到现在扫到过哪些 LBA)
@@ -417,13 +413,13 @@ def plot_window_coverage(events: list, out_dir: str):
     cum_min = np.minimum.accumulate(sorted_lbas)
     cum_max = np.maximum.accumulate(sorted_lbas)
     ax.fill_between(sorted_times, cum_min, cum_max, alpha=0.4, color='steelblue',
-                    label='累计访问过的 LBA 范围')
+                    label='累计 last-touch LBA 范围')
     ax.plot(sorted_times, cum_min, 'b-', lw=1)
     ax.plot(sorted_times, cum_max, 'r-', lw=1)
-    ax.scatter(sorted_times, sorted_lbas, c='black', s=2, alpha=0.5, label='每次访问')
+    ax.scatter(sorted_times, sorted_lbas, c='black', s=2, alpha=0.5, label='唯一 sector last-touch')
     ax.set_xlabel('时间 (秒)', fontsize=11)
-    ax.set_ylabel('LBA (GB)', fontsize=11)
-    ax.set_title('LBA 累积覆盖范围\n(到达当前时间为止, 设备访问过哪些区域)', fontsize=12, weight='bold')
+    ax.set_ylabel('LBA (GiB)', fontsize=11)
+    ax.set_title('last-touch LBA 累积范围\n(不是 per-IO 覆盖)', fontsize=12, weight='bold')
     ax.grid(True, alpha=0.3)
     ax.legend()
 
@@ -434,40 +430,40 @@ def plot_window_coverage(events: list, out_dir: str):
     print(f"  ✅ {out_path}")
 
 
-def write_summary(events, abs_gaps_bytes, signed_diffs_gb, out_dir):
+def write_summary(events, abs_gaps_bytes, signed_diffs_gib, out_dir):
     """写 JSON 总结 + 文本报告"""
-    runs = find_directional_runs(signed_diffs_gb)
+    runs = find_directional_runs(signed_diffs_gib)
     forward_runs = [r[1] for r in runs if r[0] == 1]
     backward_runs = [r[1] for r in runs if r[0] == -1]
-    gaps_mb = [g/1024/1024 for g in abs_gaps_bytes]
+    gaps_mib = [g/1024/1024 for g in abs_gaps_bytes]
 
     summary = {
-        "data_source": "bpftrace @d[dev, sector]: timestamp_ns",
-        "dedup_warning": "同一 (dev, sector) 仅记最新访问, 不是 per-IO log",
+        "data_source": "bpftrace @d[dev, sector]: timestamp_ns last-touch map",
+        "dedup_warning": "同一 (dev, sector) 仅记最新访问, 不是 per-IO log; gap/direction/run are exploratory last-touch-derived metrics",
         "n_events": len(events),
         "time_range_s": events[-1]['t_s'] - events[0]['t_s'],
-        "lba_min_gb": min(e['lba_gb'] for e in events),
-        "lba_max_gb": max(e['lba_gb'] for e in events),
-        "lba_total_range_gb": max(e['lba_gb'] for e in events) - min(e['lba_gb'] for e in events),
-        "gap_distribution_mb": {
-            "min": min(gaps_mb),
-            "median": float(np.median(gaps_mb)),
-            "mean": float(np.mean(gaps_mb)),
-            "p95": float(np.percentile(gaps_mb, 95)),
-            "p99": float(np.percentile(gaps_mb, 99)),
-            "max": max(gaps_mb),
+        "lba_min_gib": min(e['lba_gib'] for e in events),
+        "lba_max_gib": max(e['lba_gib'] for e in events),
+        "lba_total_range_gib": max(e['lba_gib'] for e in events) - min(e['lba_gib'] for e in events),
+        "last_touch_gap_distribution_mib": {
+            "min": min(gaps_mib),
+            "median": float(np.median(gaps_mib)),
+            "mean": float(np.mean(gaps_mib)),
+            "p95": float(np.percentile(gaps_mib, 95)),
+            "p99": float(np.percentile(gaps_mib, 99)),
+            "max": max(gaps_mib),
         },
-        "sequential_rate_by_threshold": {
-            "gap_lt_1mb_pct": float(sum(1 for g in gaps_mb if g < 1) / len(gaps_mb) * 100),
-            "gap_lt_10mb_pct": float(sum(1 for g in gaps_mb if g < 10) / len(gaps_mb) * 100),
-            "gap_lt_100mb_pct": float(sum(1 for g in gaps_mb if g < 100) / len(gaps_mb) * 100),
-            "gap_ge_100mb_pct": float(sum(1 for g in gaps_mb if g >= 100) / len(gaps_mb) * 100),
+        "last_touch_gap_rate_by_threshold": {
+            "gap_lt_1mib_pct": float(sum(1 for g in gaps_mib if g < 1) / len(gaps_mib) * 100),
+            "gap_lt_10mib_pct": float(sum(1 for g in gaps_mib if g < 10) / len(gaps_mib) * 100),
+            "gap_lt_100mib_pct": float(sum(1 for g in gaps_mib if g < 100) / len(gaps_mib) * 100),
+            "gap_ge_100mib_pct": float(sum(1 for g in gaps_mib if g >= 100) / len(gaps_mib) * 100),
         },
-        "direction_distribution": {
-            "forward_pct": float(sum(1 for d in signed_diffs_gb if d > 0) / len(signed_diffs_gb) * 100),
-            "backward_pct": float(sum(1 for d in signed_diffs_gb if d < 0) / len(signed_diffs_gb) * 100),
+        "last_touch_direction_distribution": {
+            "forward_pct": float(sum(1 for d in signed_diffs_gib if d > 0) / len(signed_diffs_gib) * 100),
+            "backward_pct": float(sum(1 for d in signed_diffs_gib if d < 0) / len(signed_diffs_gib) * 100),
         },
-        "directional_runs": {
+        "last_touch_directional_runs": {
             "n_forward_runs": len(forward_runs),
             "mean_forward_run_length": float(np.mean(forward_runs)) if forward_runs else 0,
             "max_forward_run_length": int(max(forward_runs)) if forward_runs else 0,
@@ -492,7 +488,7 @@ def write_summary(events, abs_gaps_bytes, signed_diffs_gb, out_dir):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='设备端 LBA 时间序列分析')
+    parser = argparse.ArgumentParser(description='设备端 LBA last-touch map 分析')
     parser.add_argument('--bpftrace', required=True, help='bpftrace log 文件路径')
     parser.add_argument('--out', required=True, help='输出目录')
     args = parser.parse_args()
@@ -503,24 +499,25 @@ def main():
     events = parse_bpftrace_lba(args.bpftrace)
     print(f"  ✅ 找到 {len(events)} 个 LBA 位置 (dedup heatmap)")
 
-    print(f"📏 计算 gap 和方向")
-    abs_gaps_bytes, signed_diffs_gb, time_deltas_ms = compute_gaps(events)
+    print(f"📏 计算 last-touch map 派生 gap 和方向")
+    abs_gaps_bytes, signed_diffs_gib, time_deltas_ms = compute_gaps(events)
 
     print(f"🎨 画图")
     plot_timeline_scatter(events, args.out)
-    plot_sequentiality(abs_gaps_bytes, signed_diffs_gb, args.out)
-    plot_runs(events, signed_diffs_gb, args.out)
+    plot_sequentiality(abs_gaps_bytes, signed_diffs_gib, args.out)
+    plot_runs(events, signed_diffs_gib, args.out)
     plot_window_coverage(events, args.out)
 
     print(f"📝 写总结")
-    summary = write_summary(events, abs_gaps_bytes, signed_diffs_gb, args.out)
+    summary = write_summary(events, abs_gaps_bytes, signed_diffs_gib, args.out)
 
     print()
     print("=" * 60)
-    print("📊 三句话结论:")
-    print(f"  1. 顺序率 (gap<1MB): {summary['sequential_rate_by_threshold']['gap_lt_1mb_pct']:.1f}%")
-    print(f"  2. 大跳跃 (gap>100MB): {summary['sequential_rate_by_threshold']['gap_ge_100mb_pct']:.1f}%")
-    print(f"  3. Forward runs: {summary['directional_runs']['n_forward_runs']} 条, 平均 {summary['directional_runs']['mean_forward_run_length']:.1f} events/run")
+    print("📊 验证口径:")
+    print("  1. 本脚本分析 @d[dev, sector] last-touch map, 不是完整 per-IO LBA log")
+    print(f"  2. 唯一 LBA 位置数: {summary['n_events']} (map entries, not IO count)")
+    print(f"  3. last-touch 派生 gap<1MiB: {summary['last_touch_gap_rate_by_threshold']['gap_lt_1mib_pct']:.1f}%")
+    print("     该比例不可当作真实 per-IO 顺序率")
     print("=" * 60)
 
 

@@ -1,0 +1,105 @@
+{
+  "source_run_dir": "results/kvcache-profile/per_io_lba_ext4_rw_20260629_032924",
+  "python3_filtered_stats": {
+    "events": 2409184,
+    "read_events": 2047678,
+    "write_events": 361506,
+    "read_sequence": {
+      "pairs": 2047677,
+      "exact_contiguous_pct": 2.5081592458185544,
+      "overlap_or_same_pct": 51.237280098374896,
+      "near_1mib_pct": 3.1268603397899177,
+      "near_10mib_pct": 3.1826796902050467,
+      "jump_ge_100mib_pct": 95.36391725843481,
+      "forward_pct": 48.76271990162511,
+      "backward_pct": 48.729120852556335,
+      "abs_delta_mib": {
+        "p50": 57031.75,
+        "p95": 181398.25,
+        "p99": 243737.03,
+        "max": 394098.859375
+      },
+      "direction_run_length": {
+        "p50": 1.0,
+        "p95": 3.0,
+        "max": 62
+      }
+    },
+    "write_sequence": {
+      "pairs": 361505,
+      "exact_contiguous_pct": 81.43317519813003,
+      "overlap_or_same_pct": 88.67595192320992,
+      "near_1mib_pct": 85.95565759809685,
+      "near_10mib_pct": 86.05413479758232,
+      "jump_ge_100mib_pct": 13.391239401944649,
+      "forward_pct": 11.324048076790087,
+      "backward_pct": 7.2427767250798745,
+      "abs_delta_mib": {
+        "p50": 0.0,
+        "p95": 7444.95234375,
+        "p99": 144116.62109375,
+        "max": 376523.91796875
+      },
+      "direction_run_length": {
+        "p50": 1.0,
+        "p95": 3.0,
+        "max": 86
+      }
+    }
+  },
+  "trace_provenance": {
+    "total_events": 2487310,
+    "python3_events": 2409184,
+    "python3_pct": 96.85901636707929,
+    "top_comm": [
+      [
+        "python3",
+        2409184
+      ],
+      [
+        "kswapd0",
+        29485
+      ],
+      [
+        "chrome",
+        9999
+      ],
+      [
+        "kworker/u96:4",
+        7815
+      ],
+      [
+        "kworker/u96:2",
+        5112
+      ],
+      [
+        "kworker/u96:6",
+        2998
+      ],
+      [
+        "tokio-rt-worker",
+        2728
+      ],
+      [
+        "sqlx-sqlite-wor",
+        2086
+      ],
+      [
+        "kworker/3:1H",
+        1130
+      ],
+      [
+        "dockerd",
+        1115
+      ],
+      [
+        "kworker/16:1H",
+        1104
+      ],
+      [
+        "kworker/2:1H",
+        757
+      ]
+    ]
+  }
+}

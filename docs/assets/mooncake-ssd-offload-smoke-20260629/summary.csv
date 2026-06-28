@@ -1,0 +1,2 @@
+config,avg_ttft_s,p90_ttft_s,p99_ttft_s,input_token_throughput_tok_s,cache_hit_rate_pct,total_requests,avg_prompt_len,offload_file_count,offload_du_gb,offload_read_events,max_offload_key_count,max_write_mb_s,max_read_mb_s,invalid_key_errors,insufficient_space_errors
++Mooncake+SSD,1.3,2.24,2.26,3556.7,59.9912,16,10241.5,2116,17.0,0,0,550.09,368.16,0,0

@@ -1,0 +1,29 @@
+#!/usr/bin/env bpftrace
+/*
+ * Per-I/O block LBA trace.
+ *
+ * Usage:
+ *   sudo bpftrace scripts/trace_block_lba.bt <dev_decimal>
+ *
+ * <dev_decimal> is Linux block dev_t as (major << 20) | minor.
+ * Example for 259:5:
+ *   python3 -c 'print((259 << 20) | 5)'
+ */
+
+BEGIN
+{
+  printf("timestamp_ns,dev,sector,bytes,rwbs,comm,pid\n");
+}
+
+tracepoint:block:block_rq_issue
+/args->dev == $1/
+{
+  printf("%llu,%u,%llu,%u,%s,%s,%d\n",
+         nsecs,
+         args->dev,
+         args->sector,
+         args->bytes,
+         args->rwbs,
+         comm,
+         pid);
+}

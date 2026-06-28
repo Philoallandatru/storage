@@ -1,0 +1,266 @@
+[
+  {
+    "dirname": "01_gpu_only",
+    "label": "GPU only",
+    "timestamp": "2026-06-26T12:39:06.115877",
+    "summary": {
+      "total_requests": 48,
+      "request_rate": 8.0,
+      "average_prompt_len": 14338.5,
+      "average_output_len": 1.0,
+      "p90_prompt_len": 24581,
+      "p99_prompt_len": 24581,
+      "p90_output_len": 1,
+      "p99_output_len": 1,
+      "average_ttft": 5.165817090292573,
+      "p90_ttft": 12.362872268000501,
+      "p99_ttft": 12.430657909993897,
+      "median_ttft": 4.0125642719940515,
+      "max_ttft": 12.430657909993897,
+      "average_itl": 0.0,
+      "p90_itl": 0.0,
+      "p99_itl": 0.0,
+      "median_itl": 0.0,
+      "max_itl": 0.0,
+      "average_latency": 5.165828099646508,
+      "p90_latency": 12.362881877998007,
+      "p99_latency": 12.430668428001809,
+      "median_latency": 4.012577222994878,
+      "max_latency": 12.430668428001809,
+      "input_token_throughput": 3651.4639701062147,
+      "output_token_throughput": 0.25466150365144297,
+      "throughput": 0.25466150365144297,
+      "cache_hit_rate": 0.04165940184352152
+    },
+    "rounds": {
+      "round_0": {
+        "average_ttft": 0.7065441312497569,
+        "cache_hit_rate": 0.0,
+        "request_count": 8
+      },
+      "round_1": {
+        "average_ttft": 1.9185088955000538,
+        "cache_hit_rate": 0.1249847430733553,
+        "request_count": 8
+      },
+      "round_2": {
+        "average_ttft": 3.519311160878715,
+        "cache_hit_rate": 0.08331977217249796,
+        "request_count": 8
+      },
+      "round_3": {
+        "average_ttft": 5.000903354000911,
+        "cache_hit_rate": 0.09373283700494295,
+        "request_count": 8
+      },
+      "round_4": {
+        "average_ttft": 8.23702492800112,
+        "cache_hit_rate": 0.0,
+        "request_count": 8
+      },
+      "round_5": {
+        "average_ttft": 11.61261007212488,
+        "cache_hit_rate": 0.0,
+        "request_count": 8
+      }
+    }
+  },
+  {
+    "dirname": "02_hicache_l1_l2",
+    "label": "HiCache L1+L2",
+    "timestamp": "2026-06-26T12:43:15.348517",
+    "summary": {
+      "total_requests": 48,
+      "request_rate": 8.0,
+      "average_prompt_len": 14338.5,
+      "average_output_len": 1.0,
+      "p90_prompt_len": 24581,
+      "p99_prompt_len": 24581,
+      "p90_output_len": 1,
+      "p99_output_len": 1,
+      "average_ttft": 4.938518458000847,
+      "p90_ttft": 12.726275486013037,
+      "p99_ttft": 12.762604092000402,
+      "median_ttft": 3.432857617997797,
+      "max_ttft": 12.762604092000402,
+      "average_itl": 0.0,
+      "p90_itl": 0.0,
+      "p99_itl": 0.0,
+      "median_itl": 0.0,
+      "max_itl": 0.0,
+      "average_latency": 4.938530687563191,
+      "p90_latency": 12.726286589007941,
+      "p99_latency": 12.76261475100182,
+      "median_latency": 3.432872381992638,
+      "max_latency": 12.76261475100182,
+      "input_token_throughput": 3743.5850660631304,
+      "output_token_throughput": 0.26108624096405697,
+      "throughput": 0.26108624096405697,
+      "cache_hit_rate": 0.14273924515581593
+    },
+    "rounds": {
+      "round_0": {
+        "average_ttft": 0.7207361880045937,
+        "cache_hit_rate": 0.0,
+        "request_count": 8
+      },
+      "round_1": {
+        "average_ttft": 1.3757041403750918,
+        "cache_hit_rate": 0.4686927865250824,
+        "request_count": 8
+      },
+      "round_2": {
+        "average_ttft": 2.7036779972495424,
+        "cache_hit_rate": 0.3742880390561432,
+        "request_count": 8
+      },
+      "round_3": {
+        "average_ttft": 4.694250339998689,
+        "cache_hit_rate": 0.1874656740098859,
+        "request_count": 8
+      },
+      "round_4": {
+        "average_ttft": 8.25731737975002,
+        "cache_hit_rate": 0.03749267721148213,
+        "request_count": 8
+      },
+      "round_5": {
+        "average_ttft": 11.879424702627148,
+        "cache_hit_rate": 0.0,
+        "request_count": 8
+      }
+    }
+  },
+  {
+    "dirname": "03_mooncake_only",
+    "label": "+Mooncake",
+    "timestamp": "2026-06-26T12:47:19.359456",
+    "summary": {
+      "total_requests": 48,
+      "request_rate": 8.0,
+      "average_prompt_len": 14338.5,
+      "average_output_len": 1.0,
+      "p90_prompt_len": 24581,
+      "p99_prompt_len": 24581,
+      "p90_output_len": 1,
+      "p99_output_len": 1,
+      "average_ttft": 4.549522889353891,
+      "p90_ttft": 12.665061058010906,
+      "p99_ttft": 12.69800045399461,
+      "median_ttft": 3.667380735001643,
+      "max_ttft": 12.69800045399461,
+      "average_itl": 0.0,
+      "p90_itl": 0.0,
+      "p99_itl": 0.0,
+      "median_itl": 0.0,
+      "max_itl": 0.0,
+      "average_latency": 4.549535870750333,
+      "p90_latency": 12.665073274998576,
+      "p99_latency": 12.69801059999736,
+      "median_latency": 3.667391134003992,
+      "max_latency": 12.69801059999736,
+      "input_token_throughput": 3966.3271340412407,
+      "output_token_throughput": 0.2766207855801681,
+      "throughput": 0.2766207855801681,
+      "cache_hit_rate": 0.19658030244911717
+    },
+    "rounds": {
+      "round_0": {
+        "average_ttft": 0.7636663090015645,
+        "cache_hit_rate": 0.0,
+        "request_count": 8
+      },
+      "round_1": {
+        "average_ttft": 1.2034937429998536,
+        "cache_hit_rate": 0.4433052605883071,
+        "request_count": 8
+      },
+      "round_2": {
+        "average_ttft": 2.7682706581254024,
+        "cache_hit_rate": 0.3124491456468674,
+        "request_count": 8
+      },
+      "round_3": {
+        "average_ttft": 4.804856716744325,
+        "cache_hit_rate": 0.1698907670714591,
+        "request_count": 8
+      },
+      "round_4": {
+        "average_ttft": 6.976303853502031,
+        "cache_hit_rate": 0.19996094512790472,
+        "request_count": 8
+      },
+      "round_5": {
+        "average_ttft": 10.780546055750165,
+        "cache_hit_rate": 0.10414547821488142,
+        "request_count": 8
+      }
+    }
+  },
+  {
+    "dirname": "04_mooncake_ssd",
+    "label": "+Mooncake+SSD",
+    "timestamp": "2026-06-26T12:51:23.376753",
+    "summary": {
+      "total_requests": 48,
+      "request_rate": 8.0,
+      "average_prompt_len": 14338.5,
+      "average_output_len": 1.0,
+      "p90_prompt_len": 24581,
+      "p99_prompt_len": 24581,
+      "p90_output_len": 1,
+      "p99_output_len": 1,
+      "average_ttft": 4.546226639666202,
+      "p90_ttft": 12.672265289991628,
+      "p99_ttft": 12.692881656999816,
+      "median_ttft": 3.6652415489952546,
+      "max_ttft": 12.692881656999816,
+      "average_itl": 0.0,
+      "p90_itl": 0.0,
+      "p99_itl": 0.0,
+      "median_itl": 0.0,
+      "max_itl": 0.0,
+      "average_latency": 4.546237817728373,
+      "p90_latency": 12.672275887991418,
+      "p99_latency": 12.692891564001911,
+      "median_latency": 3.665252060003695,
+      "max_latency": 12.692891564001911,
+      "input_token_throughput": 3968.596948616063,
+      "output_token_throughput": 0.27677908767416837,
+      "throughput": 0.27677908767416837,
+      "cache_hit_rate": 0.19602236403157003
+    },
+    "rounds": {
+      "round_0": {
+        "average_ttft": 0.7640473963783734,
+        "cache_hit_rate": 0.0,
+        "request_count": 8
+      },
+      "round_1": {
+        "average_ttft": 1.2073944803705672,
+        "cache_hit_rate": 0.4374466007567436,
+        "request_count": 8
+      },
+      "round_2": {
+        "average_ttft": 2.76640940487232,
+        "cache_hit_rate": 0.3124491456468674,
+        "request_count": 8
+      },
+      "round_3": {
+        "average_ttft": 4.78022557075019,
+        "cache_hit_rate": 0.1698907670714591,
+        "request_count": 8
+      },
+      "round_4": {
+        "average_ttft": 6.976357898874994,
+        "cache_hit_rate": 0.19996094512790472,
+        "request_count": 8
+      },
+      "round_5": {
+        "average_ttft": 10.782925086750765,
+        "cache_hit_rate": 0.10414547821488142,
+        "request_count": 8
+      }
+    }
+  }
+]

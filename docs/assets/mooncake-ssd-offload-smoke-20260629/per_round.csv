@@ -1,0 +1,5 @@
+config,round,avg_ttft_s,cache_hit_rate_pct,request_count
++Mooncake+SSD,0,0.65,0.0,4
++Mooncake+SSD,1,1.03,49.993900000000004,4
++Mooncake+SSD,2,1.57,66.6558,4
++Mooncake+SSD,3,1.97,74.9863,4
