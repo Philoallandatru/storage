@@ -76,6 +76,9 @@ def plot_timeline(data: dict, output_path: str = "sharegpt_token_rate_timeline.p
         users_seen = sorted({e.get("users") for e in summary["autoscaling_stats"] if e.get("users") is not None})
         num_users = users_seen[0] if users_seen else None
 
+    final_users = autoscaling_summary.get("final_users")
+    users_display = f"{num_users}→{final_users}" if final_users and final_users != num_users else f"{num_users or '?'}"
+
     title_data_source = "LLM Inference"
     if autoscaling_summary:
         title_data_source = "BurstGPT Trace Replay"
@@ -115,7 +118,7 @@ def plot_timeline(data: dict, output_path: str = "sharegpt_token_rate_timeline.p
     ax1.set_title(
         f"{title_data_source} — Token Generation Rate Over Time{scenario_label}\n"
         f"requests={summary.get('total_requests','?')} | tokens={summary.get('total_tokens','?')} | "
-        f"users={num_users or '?'} | duration={duration:.0f}s"
+        f"users={users_display} | duration={duration:.0f}s"
         f"{drift_note}",
         fontsize=12)
     ax1.legend(loc="upper right", fontsize=10)
