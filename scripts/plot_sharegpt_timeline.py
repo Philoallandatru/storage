@@ -62,6 +62,44 @@ def plot_timeline(data: dict, output_path: str = "sharegpt_token_rate_timeline.p
     avg_tput = summary.get("avg_throughput_tokens_per_sec")
     storage_tput = summary.get("storage_throughput_tokens_per_sec")
 
+    # ---- Auto-detect data source from filename hints ----
+    cache_stats = summary.get("cache_stats", {})
+    autoscaling_summary = summary.get("autoscaling_summary") or {}
+    # Number of users: prefer autoscaling_summary.initial_users (the configured count),
+    # then num_users, then compute from autoscaling_stats events
+    num_users = (
+        autoscaling_summary.get("initial_users")
+        or summary.get("num_users")
+        or data.get("num_users")
+    )
+    if not num_users and summary.get("autoscaling_stats"):
+        users_seen = sorted({e.get("users") for e in summary["autoscaling_stats"] if e.get("users") is not None})
+        num_users = users_seen[0] if users_seen else None
+
+    title_data_source = "LLM Inference"
+    if autoscaling_summary:
+        title_data_source = "BurstGPT Trace Replay"
+    elif summary.get("qos_metrics", {}).get("interactive", {}).get("total_requests"):
+        title_data_source = "Multi-tenant"
+
+    scenario_label = ""
+    duration = summary.get("elapsed_time", max(timestamps) if timestamps else 0)
+    if duration > 1500:
+        scenario_label = " (GC drift test, 30-min)"
+
+    drift_note = ""
+    if len(throughputs) > 30:
+        warmup_end = 10
+        post_warmup = throughputs[warmup_end:]
+        peak_idx = post_warmup.index(max(post_warmup))
+        peak_tput = post_warmup[peak_idx]
+        tail_tput = sum(throughputs[-10:]) / 10
+        drift_pct = (peak_tput - tail_tput) / peak_tput * 100
+        if drift_pct > 5:
+            drift_note = f"\nGC drift detected: peak {peak_tput:.0f} → tail {tail_tput:.0f} tok/s (-{drift_pct:.0f}%)"
+        elif drift_pct < -5:
+            drift_note = f"\nTail improvement: peak {peak_tput:.0f} → tail {tail_tput:.0f} tok/s (+{-drift_pct:.0f}%)"
+
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), gridspec_kw={"height_ratios": [3, 1]})
 
     # --- Main timeline ---
@@ -74,11 +112,12 @@ def plot_timeline(data: dict, output_path: str = "sharegpt_token_rate_timeline.p
                     label=f"storage throughput: {storage_tput:.1f} tok/s")
     ax1.set_xlabel("Elapsed Time (s)", fontsize=11)
     ax1.set_ylabel("Throughput (tokens/sec)", fontsize=11)
-    ax1.set_title("ShareGPT LLM Inference — Token Generation Rate Over Time\n"
-                  f"{data.get('summary',{}).get('total_requests','?')} requests | "
-                  f"{data.get('summary',{}).get('total_tokens','?')} tokens | "
-                  f"users={data.get('summary',{}).get('concurrent_users',data.get('requests_completed','?'))}",
-                  fontsize=13, fontweight="bold")
+    ax1.set_title(
+        f"{title_data_source} — Token Generation Rate Over Time{scenario_label}\n"
+        f"requests={summary.get('total_requests','?')} | tokens={summary.get('total_tokens','?')} | "
+        f"users={num_users or '?'} | duration={duration:.0f}s"
+        f"{drift_note}",
+        fontsize=12)
     ax1.legend(loc="upper right", fontsize=10)
     ax1.grid(True, alpha=0.25)
     ax1.set_xlim(0, max(timestamps))
