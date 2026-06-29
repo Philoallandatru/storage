@@ -1,0 +1,44 @@
+{
+  "workloads": {
+    "synthetic_fio_sweep_QD32": {
+      "source": "fio_sweep/sharegpt_8b_cpuhalf_qd32/",
+      "iops_avg": 33323,
+      "bw_avg_giBs": 2.99,
+      "rwmixread_pct": 61,
+      "note": "fio distill replay; no real per-IO trace; no adjacent-LBA concept"
+    },
+    "sharegpt_kvcache": {
+      "source": "results/kvcache-profile/sharegpt_kvcache_20260629_140729/block_lba_trace.csv",
+      "block_events": 1981685,
+      "duration_s": 140.91,
+      "iops_avg": 14063,
+      "bw_avg_giBs": 1.64,
+      "read_pct_events": 93.86,
+      "read_exact_contiguous_pct": 41.77,
+      "read_jump_100MiB_pct": 56.97,
+      "write_exact_contiguous_pct": 94.37,
+      "dom_size": "128 KiB (93.94%)",
+      "lba_span_giB": 389.35
+    },
+    "burstgpt_kvcache": {
+      "source": "results/kvcache-profile/burstgpt_kvcache_20260629_141010/block_lba_trace.csv",
+      "block_events": 4566627,
+      "duration_s": 129.75,
+      "iops_avg": 35195,
+      "bw_avg_giBs": 4.25,
+      "read_pct_events": 92.03,
+      "read_exact_contiguous_pct": 10.08,
+      "read_jump_100MiB_pct": 89.11,
+      "write_exact_contiguous_pct": 97.63,
+      "dom_size": "128 KiB (98.52%)",
+      "lba_span_giB": 389.35
+    }
+  },
+  "methodology": {
+    "trace": "Linux tracepoint:block:block_rq_issue",
+    "device": "/dev/nvme0n1 (parent) dev_t=271581194",
+    "filesystem": "ext4 root partition",
+    "workload_runner": "kv-cache.py v2.0.0b1, llama3.1-8b TP=1, forced NVMe (gpu-mem-gb=0, cpu-mem-gb=0)",
+    "synthetic_runner": "fio 3.41 distill replay from bpftrace traces"
+  }
+}
