@@ -2,8 +2,8 @@
   "workloads": {
     "synthetic_fio_sweep_QD32": {
       "source": "fio_sweep/sharegpt_8b_cpuhalf_qd32/",
-      "iops_avg": 33323,
-      "bw_avg_giBs": 2.99,
+      "iops_avg": 30545,
+      "bw_avg_giBs": 2.85,
       "rwmixread_pct": 61,
       "note": "fio distill replay; no real per-IO trace; no adjacent-LBA concept"
     },

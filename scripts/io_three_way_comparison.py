@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Patch
 
-plt.rcParams['font.family'] = ['Noto Sans CJK JP', 'Noto Sans CJK SC', 'DejaVu Sans']
+plt.rcParams['font.family'] = ['Noto Sans CJK JP', 'DejaVu Sans']
 plt.rcParams['font.size'] = 11
 plt.rcParams['figure.facecolor'] = 'white'
 plt.rcParams['axes.unicode_minus'] = False
@@ -29,8 +29,8 @@ for fp in ['/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
 # ── 三个数据源 ──────────────────────────────────────────────
 DATA = {
     'synthetic (fio_sweep, BIWIN X570, QD=32)': {
-        'iops':       33323,         # QD=32: 18636+11909=30545 → 高 IOPS ~30K
-        'bw_giBs':    2.99,          # 1725+1334 ≈ 3.0 GiB/s
+        'iops':       30545,         # QD=32: 18,636 read + 11,909 write
+        'bw_giBs':    2.85,          # (1644.7 + 1272.5) MiB/s / 1024
         'r_pct':      61,            # rwmixread=61%
         'w_pct':      39,
         'read_100MiB_jump_pct': 0,   # synthetic random rw, 没有 "相邻跳跃" 概念
@@ -187,10 +187,10 @@ for idx, label in enumerate(['sharegpt', 'burstgpt']):
                  label=label, alpha=0.85)
 
 # synthetic 加水平参考线 (avg IOPS / BW)
-axes[0].axhline(y=33323, color=colors[0], linestyle='--', linewidth=1.5,
-                label=f'synthetic (avg = {33323:,} IOPS)', alpha=0.85)
-axes[1].axhline(y=2.99, color=colors[0], linestyle='--', linewidth=1.5,
-                label=f'synthetic (avg = 2.99 GiB/s)', alpha=0.85)
+axes[0].axhline(y=30545, color=colors[0], linestyle='--', linewidth=1.5,
+                label=f'synthetic (avg = {30545:,} IOPS)', alpha=0.85)
+axes[1].axhline(y=2.85, color=colors[0], linestyle='--', linewidth=1.5,
+                label=f'synthetic (avg = 2.85 GiB/s)', alpha=0.85)
 
 for ax, title, ylabel in zip(axes, titles, ylabels):
     ax.set_title(title, fontsize=12, fontweight='bold')
@@ -300,7 +300,7 @@ fig, ax = plt.subplots(figsize=(10, 5))
 fig.patch.set_facecolor('white')
 
 metrics = ['IOPS\n(×1000)', 'BW\n(GiB/s)', 'Read %', 'Read ≥100MiB\njump %']
-synth_v = [33.3, 2.99, 61, 0]
+synth_v = [30.5, 2.85, 61, 0]
 share_v = [14.1, 1.64, 94, 57.0]
 burst_v = [35.2, 4.25, 92, 89.1]
 
@@ -333,8 +333,8 @@ summary = {
     'workloads': {
         'synthetic_fio_sweep_QD32': {
             'source': 'fio_sweep/sharegpt_8b_cpuhalf_qd32/',
-            'iops_avg': 33323,
-            'bw_avg_giBs': 2.99,
+            'iops_avg': 30545,
+            'bw_avg_giBs': 2.85,
             'rwmixread_pct': 61,
             'note': 'fio distill replay; no real per-IO trace; no adjacent-LBA concept',
         },
