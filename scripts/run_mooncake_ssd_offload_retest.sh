@@ -248,9 +248,9 @@ run_one_config() {
   local mooncake_config_path="$out_dir/mooncake_config.json"
   mkdir -p "$out_dir"
   cleanup
+  rm -rf "${OFFLOAD_DIR:?}/"*
 
   if [ "$config" = "mooncake_ssd" ]; then
-    rm -rf "${OFFLOAD_DIR:?}/"*
     write_config_json "$mooncake_config_path" true
     start_master "$out_dir" true
   elif [ "$config" = "mooncake_only" ]; then

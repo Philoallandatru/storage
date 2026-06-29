@@ -1,0 +1,95 @@
+[
+  {
+    "dirname": "mooncake_ssd",
+    "label": "+Mooncake+SSD",
+    "timestamp": "2026-06-29T07:48:36.673076",
+    "summary": {
+      "total_requests": 64,
+      "request_rate": 8.0,
+      "average_prompt_len": 13827.5,
+      "average_output_len": 1.0,
+      "p90_prompt_len": 24583,
+      "p99_prompt_len": 24583,
+      "p90_output_len": 1,
+      "p99_output_len": 1,
+      "average_ttft": 4.703895109812493,
+      "p90_ttft": 11.432550600002287,
+      "p99_ttft": 14.226114078002865,
+      "median_ttft": 4.389977576000092,
+      "max_ttft": 14.226114078002865,
+      "average_itl": 0.0,
+      "p90_itl": 0.0,
+      "p99_itl": 0.0,
+      "median_itl": 0.0,
+      "max_itl": 0.0,
+      "average_latency": 4.703906443531196,
+      "p90_latency": 11.432561403998989,
+      "p99_latency": 14.2261245730042,
+      "median_latency": 4.389987620997999,
+      "max_latency": 14.2261245730042,
+      "input_token_throughput": 3712.021159163776,
+      "output_token_throughput": 0.2684520816607323,
+      "throughput": 0.2684520816607323,
+      "cache_hit_rate": 0.48873621406617246
+    },
+    "rounds": {
+      "round_0": {
+        "average_ttft": 0.5333323071254199,
+        "cache_hit_rate": 0.0,
+        "request_count": 8
+      },
+      "round_1": {
+        "average_ttft": 0.7758514634997482,
+        "cache_hit_rate": 0.4999186330349878,
+        "request_count": 8
+      },
+      "round_2": {
+        "average_ttft": 0.9917315894999774,
+        "cache_hit_rate": 0.6665220221306141,
+        "request_count": 8
+      },
+      "round_3": {
+        "average_ttft": 2.919197229623933,
+        "cache_hit_rate": 0.7498169392238223,
+        "request_count": 8
+      },
+      "round_4": {
+        "average_ttft": 4.697844238000471,
+        "cache_hit_rate": 0.799791720906014,
+        "request_count": 8
+      },
+      "round_5": {
+        "average_ttft": 9.086151794625948,
+        "cache_hit_rate": 0.4877149210826056,
+        "request_count": 8
+      },
+      "round_6": {
+        "average_ttft": 7.849955030500496,
+        "cache_hit_rate": 0.44667596466759646,
+        "request_count": 8
+      },
+      "round_7": {
+        "average_ttft": 10.777097225623947,
+        "cache_hit_rate": 0.19297888784932676,
+        "request_count": 8
+      }
+    },
+    "evidence": {
+      "avg_read_mb_s": 31.737587412587413,
+      "avg_write_mb_s": 98.6516923076923,
+      "max_read_mb_s": 243.88,
+      "max_write_mb_s": 551.7,
+      "max_util_pct": 112.8,
+      "offload_file_count": 5413,
+      "offload_du_gb": 38.0,
+      "storage_root_set_count": 1,
+      "storage_root_missing_count": 0,
+      "ssd_enabled_count": 1,
+      "offload_read_events": 48,
+      "max_offload_key_count": 256,
+      "invalid_key_errors": 72,
+      "duplicate_key_errors": 9,
+      "insufficient_space_errors": 40
+    }
+  }
+]

@@ -28,6 +28,8 @@ COLORS = {
     "+Mooncake+SSD": "#22c55e",
 }
 
+RAW_LOG_NAMES = ("server.log", "master.log", "bench.log", "bench_stdout.log")
+
 
 def first_existing(root: Path, names: tuple[str, ...]) -> Path | None:
     for name in names:
@@ -122,6 +124,10 @@ def count_pattern(path: Path, pattern: str) -> int:
     return count
 
 
+def count_pattern_files(paths: list[Path], pattern: str) -> int:
+    return sum(count_pattern(path, pattern) for path in paths)
+
+
 def max_offload_key_count(path: Path) -> int:
     if not path.exists():
         return 0
@@ -208,17 +214,25 @@ def load_bench(root: Path) -> list[dict]:
             payload = read_json_line(log_path)
         else:
             payload = parse_stdout_bench(config_dir / "bench_stdout.log")
+        raw_logs = [config_dir / name for name in RAW_LOG_NAMES]
         evidence = {
             **parse_iostat(config_dir / "iostat.log"),
             **parse_inventory(config_dir / "inventory.log"),
-            "storage_root_set_count": count_pattern(config_dir / "server.log", r"Storage root directory is:"),
-            "storage_root_missing_count": count_pattern(config_dir / "server.log", r"Storage root directory is not set"),
-            "ssd_enabled_count": count_pattern(config_dir / "server.log", r"IsEnableOffloading result: true"),
+            "input_length_errors": count_pattern_files(raw_logs, r"Input length"),
+            "storage_root_set_count": count_pattern_files(raw_logs, r"Storage root directory is:"),
+            "storage_root_missing_count": count_pattern_files(raw_logs, r"Storage root directory is not set"),
+            "ssd_enabled_count": count_pattern_files(raw_logs, r"IsEnableOffloading result: true"),
             "offload_read_events": count_pattern(config_dir / "server.log", r"offload key count:\s*[1-9]"),
+            "read_store_events": count_pattern(config_dir / "server.log", r"read store:\s*[1-9]"),
+            "o_direct_events": count_pattern_files(raw_logs, r"O_DIRECT mode enabled"),
+            "evict_trigger_events": count_pattern_files(raw_logs, r"EVICT-TRIGGER"),
+            "evict_done_events": count_pattern_files(raw_logs, r"EVICT-DONE"),
             "max_offload_key_count": max_offload_key_count(config_dir / "server.log"),
-            "invalid_key_errors": count_pattern(config_dir / "server.log", r"INVALID_KEY"),
-            "duplicate_key_errors": count_pattern(config_dir / "server.log", r"OBJECT_ALREADY_EXISTS"),
-            "insufficient_space_errors": count_pattern(config_dir / "server.log", r"insufficient space"),
+            "invalid_key_errors": count_pattern_files(raw_logs, r"INVALID_KEY"),
+            "duplicate_key_errors": count_pattern_files(raw_logs, r"OBJECT_ALREADY_EXISTS"),
+            "insufficient_space_errors": count_pattern_files(raw_logs, r"insufficient space"),
+            "buffer_overflow_errors": count_pattern_files(raw_logs, r"BUFFER_OVERFLOW"),
+            "write_page_failures": count_pattern_files(raw_logs, r"Write page to storage"),
         }
         rows.append(
             {
@@ -251,11 +265,20 @@ def write_derived(rows: list[dict], out_dir: Path) -> None:
                 "offload_file_count",
                 "offload_du_gb",
                 "offload_read_events",
+                "read_store_events",
                 "max_offload_key_count",
+                "storage_root_set_count",
+                "ssd_enabled_count",
+                "o_direct_events",
+                "evict_trigger_events",
                 "max_write_mb_s",
                 "max_read_mb_s",
+                "input_length_errors",
+                "buffer_overflow_errors",
                 "invalid_key_errors",
+                "duplicate_key_errors",
                 "insufficient_space_errors",
+                "write_page_failures",
             ]
         )
         for row in rows:
@@ -274,11 +297,20 @@ def write_derived(rows: list[dict], out_dir: Path) -> None:
                     e["offload_file_count"],
                     e["offload_du_gb"],
                     e["offload_read_events"],
+                    e["read_store_events"],
                     e["max_offload_key_count"],
+                    e["storage_root_set_count"],
+                    e["ssd_enabled_count"],
+                    e["o_direct_events"],
+                    e["evict_trigger_events"],
                     e["max_write_mb_s"],
                     e["max_read_mb_s"],
+                    e["input_length_errors"],
+                    e["buffer_overflow_errors"],
                     e["invalid_key_errors"],
+                    e["duplicate_key_errors"],
                     e["insufficient_space_errors"],
+                    e["write_page_failures"],
                 ]
             )
 

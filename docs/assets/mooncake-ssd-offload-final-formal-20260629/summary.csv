@@ -1,0 +1,5 @@
+config,avg_ttft_s,p90_ttft_s,p99_ttft_s,input_token_throughput_tok_s,cache_hit_rate_pct,total_requests,avg_prompt_len,offload_file_count,offload_du_gb,offload_read_events,read_store_events,max_offload_key_count,storage_root_set_count,ssd_enabled_count,o_direct_events,evict_trigger_events,max_write_mb_s,max_read_mb_s,input_length_errors,buffer_overflow_errors,invalid_key_errors,duplicate_key_errors,insufficient_space_errors,write_page_failures
+GPU only,4.887457593233762,11.967243161001534,12.46179855200171,3600.5144830639306,4.353643102513108,64,13827.5,0,0.0,0,0,0,0,0,0,0,770.82,367.29,0,0,0,0,0,0
+HiCache L1+L2,4.252984626421608,9.83848034600669,12.662124671995116,3915.879640120439,20.357982281685047,64,13827.5,0,0.0,0,0,0,0,0,0,0,570.07,107.23,0,0,0,0,0,0
++Mooncake,4.150523665124979,9.836499761004234,12.706821371997648,3981.789303967944,23.836557584523593,64,13827.5,0,0.0,0,0,0,0,0,0,124,554.86,106.73,0,0,0,0,0,0
++Mooncake+SSD,3.435810746952825,8.006942057996639,9.180919643004017,4469.94574029459,67.76351473512928,64,13827.5,5402,41.0,52,52,250,1,1,1341,10475,551.71,205.69,0,0,0,3,86,43
