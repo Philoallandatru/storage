@@ -1,20 +1,22 @@
-# KV Cache SSD Offload 真实 IO 分析 — PPT 大纲
+# KV Cache SSD Offload 真实 IO 分析 — PPT 大纲 (更新版)
 
-**目标受众:** 项目内部技术评审 / 老板汇报  
-**总页数:** 12 页  
-**演讲时长:** 15-20 分钟  
-**风格:** 数据驱动,每页一张图 + 3 行要点  
-**核心信息:** 3 种 workload 产生截然不同的 IO 模式;BurstGPT 是最真实压力;fio_sweep 只够做 device sanity
+**目标受众:** 项目内部技术评审 / 老板汇报
+**总页数:** 12 页
+**演讲时长:** 15-20 分钟
+**风格:** 数据驱动,每页一张图 + 3 行要点
+**核心信息:** 3 种 workload 产生截然不同的 IO 模式;default-kvcache 是 baseline,burstgpt 是最重压力,sharegpt 是混合压力;fio_sweep 不参与三路对比
+
+> **v2 修订 (2026-06-30):** 把"synthetic (fio_sweep)"列替换为"default-kvcache (workload runner 默认测试,prefill+decode 分离跑)",移除 fio_sweep 概念。详见主报告 §1-3。
 
 ---
 
 ## 📑 第 1 页 — 封面
 
-**大标题:** KV Cache SSD Offload 真实 I/O 模式分析  
-**副标题:** Synthetic / ShareGPT / BurstGPT 三路对比  
-**日期:** 2026-06-29  
-**作者:** MLPerf Storage Working Group  
-**配图建议:** 3 张工作负载的 logo (sharegpt 绿 / burstgpt 黄 / BIWIN 盘图标),或深色 dashboard 缩略图作为背景
+**大标题:** KV Cache SSD Offload 真实 I/O 模式分析
+**副标题:** default-kvcache / ShareGPT / BurstGPT 三路对比
+**日期:** 2026-06-29 (v2 修订 2026-06-30)
+**作者:** MLPerf Storage Working Group
+**配图建议:** 3 种 workload 的缩略图,或深色 dashboard 缩略图作为背景
 
 **页脚:** "本文档基于 tracepoint:block:block_rq_issue 实测数据,非模拟"
 
@@ -51,41 +53,44 @@
 
 **文字要点:**
 
-| Workload | 工具链 | 触发场景 | 时长 |
-|---|---|---|---|
-| **synthetic** | fio 3.41 distill replay | 从 bpftrace 蒸馏出 fio config (bssplit / rwmixread) | 60s |
-| **sharegpt** | kv-cache.py + ShareGPT JSON | 多轮对话,prefix cache 命中率高 | 120s |
-| **burstgpt** | kv-cache.py + BurstGPT CSV | bursty 请求,随机到达,decode 重 | 120s |
+| Workload | 工具链 | 触发场景 | 时长 | 模型 | TP |
+|---|---|---|---:|---|---:|
+| **default-kvcache** | kv-cache.py 默认测试 (prefill-only + decode-only 分离) | 模拟 LLM 双阶段运行 | 113.93s (35s + 60s + transients) | llama3.1-8b | 8 |
+| **sharegpt** | kv-cache.py + ShareGPT JSON | 多轮对话,prefix cache 命中率高 | 120s | llama3.1-8b | 1 |
+| **burstgpt** | kv-cache.py + BurstGPT CSV | bursty 请求,随机到达,decode 重 | 120s | llama3.1-8b | 1 |
 
 **配图建议:**
 - 三段并排的 workload 时间轴 (timeline mockup)
 - 或三张 workload 的 logo/图标
 
+**注:** default-kvcache TP=8,sharegpt/burstgpt TP=1 — TP 影响 batch size,数字不完全可比。
+
 ---
 
 ## 📑 第 5 页 — ⭐ 综合压力对比 (Signal Dashboard)
 
-**配图:** `assets/io-three-way-comparison/01_signal_dashboard.png` (深色 4 子图)
+**配图:** `assets/io-three-way-comparison/01_signal_dashboard.png` (深色 2x3 KPI 卡片)
 
 **文字要点 (4 句话):**
 1. **burstgpt 压力最大**:35,195 IOPS / 4.25 GiB/s,比 sharegpt 高 2.5×
-2. **fio_sweep (synthetic) 也能跑 33K IOPS**,但这是稳态设备上限,跟真实应用压力性质不同
-3. **sharegpt 是中等压力**:14K IOPS / 1.64 GiB/s,但 Read 比例 94% 比 burstgpt 略高
-4. **synthetic 没有 Read 相邻跳跃数据** (fio 缺 PID 连续性) → **不适合做 KV-cache SSD offload 评估**
+2. **default-kvcache 居中**:21,832 IOPS / 2.47 GiB/s,但 R/W 比例 4.9:1 比 sharegpt/burstgpt 写多
+3. **sharegpt 是中等压力**:14K IOPS / 1.64 GiB/s,但 Read 比例 94% (最高)
+4. **三种 workload LBA span 完全相同 (389.35 GiB)** — 跟盘本身容量相关,跟 workload 类型无关
 
-**页脚:** "数据来源:tracepoint 实测 6.5M block events"
+**页脚:** "数据来源:tracepoint 实测 9M+ block events"
 
 ---
 
 ## 📑 第 6 页 — IOPS / BW 时间序列
 
-**配图:** `assets/io-three-way-comparison/02_iops_bw_timeline.png` (3s 窗口双图)
+**配图:** `assets/io-three-way-comparison/02_iops_bw_timeline.png` (per-second 双图)
 
 **文字要点:**
 - **burstgpt 是稳态高负载**:IOPS CV 仅 0.28,几乎是贴着上限跑
 - **sharegpt 是脉冲型负载**:CV 0.61,峰谷比 2.07×,有活跃期/静默期切换
-- 这跟 workload 性质吻合 — burstgpt 是用户请求随机到达的 burst 模式;sharegpt 是多轮对话 prefix 复用
-- **fio_sweep 是稳态** (没有时间序列数据,只能画水平参考线) → **没有突发性,无法评估 SSD offload 在生产环境下的瞬时压力**
+- **default-kvcache 是双阶段切换型**:prefill 阶段几乎全是写,decode 阶段几乎全是读 (不是混合)
+- 这跟 workload 性质吻合 — burstgpt 是用户请求随机到达的 burst 模式;sharegpt 是多轮对话 prefix 复用;default 是 LLM 标准 prefill+decode 流程
+- **注意:** default-kvcache 的时间序列来自 10s 窗 (morning 处理),sharegpt/burstgpt 来自 3s 窗 (新处理),直接对比需要同粒度
 
 ---
 
@@ -94,10 +99,10 @@
 **配图:** `assets/io-three-way-comparison/03_lba_delta_cdf.png` (R/W 分开双图,log scale X)
 
 **文字要点:**
-- **burstgpt 读是"random read" 模板**:89.1% 相邻读跳跃 ≥100 MiB,p50 = 31 GB
+- **default-kvcache 读是最随机的**:95.07% 相邻读跳跃 ≥100 MiB,p50 = 57 GB (decode 阶段 KV cache 全随机拉取)
 - **sharegpt 读是 mixed**:41.8% 连续 + 57.0% 大跳跃 = prefix cache 命中 + 部分新问题
-- **写都是连续的**:sharegpt 写 94.4% / burstgpt 写 97.6% 精确连续 → Prefill 顺序 append
-- **这跟早上那份 281.88 GiB 实测完全一致**:75% 写连续 / 95% 读大跳跃
+- **burstgpt 读 89.1% 大跳跃** (p50 = 31 GB),典型 random read 模板
+- **写都是连续的**:default 75% / sharegpt 94% / burstgpt 98% 精确连续 → Prefill 顺序 append
 - **CDF 曲线下的面积差** = "synthetic 没法模拟的" 真实应用 LBA 行为
 
 **页脚:** "389 GiB LBA span — 用户问的 token 在不同历史位置,需要从 SSD 随机拉取"
@@ -110,36 +115,36 @@
 
 **文字要点:**
 - 三种 workload 都以 128 KiB 为主
-- **kv-cache.py 实际跑的 sharegpt/burstgpt 清一色 128K**(sglang page size = 64 token → 128 KiB)
-- **fio_sweep (synthetic) bssplit 是 4k/8k/16k/32k/64k/128k 混合**,因为来自 6 月初 bpftrace 蒸馏,反映当时 KV 内部多级缓存结构
-- **burstgpt 几乎纯 128K**(98.52%)→ **device IO 调度可以用固定 128K 块假设简化**
+- **default-kvcache 块大小分布最分散** (4k 也有 4.3%) — 因为 prefill 阶段有 file system metadata write 混入
+- **sharegpt 有少量 64 KiB** (6%) — 可能来自 prefix cache 命中时的 half-block promotion
+- **burstgpt 几乎纯 128K** (98.5%) → **device IO 调度可以用固定 128K 块假设简化**
 
 ---
 
 ## 📑 第 9 页 — 压力热图
 
-**配图:** `assets/io-three-way-comparison/05_pressure_heatmap.png` (3×4 矩阵)
+**配图:** `assets/io-three-way-comparison/05_pressure_heatmap.png` (4×3 矩阵)
 
 **文字要点:**
-- **burstgpt 在 3 项指标都是最高**:IOPS / BW / 大跳跃率
-- **sharegpt 在 Read % 上跟 burstgpt 并列**,但实际压力小很多(总事件数低)
-- **synthetic 在 "Read 相邻大跳跃" 是 0**(无意义),**Read % 最低**(61%) → **跟真实 workload 差异最大**
-- **热图直观显示**:**不能用一个 workload 顶替另一个**
+- **default-kvcache 在 "Read ≥100MiB jump" 指标上最高** (95.07%) — 因为是双阶段,prefill 阶段几乎没有读,decode 阶段全是随机读
+- **burstgpt 在 IOPS / BW 两项都是最高** — 最重压力
+- **sharegpt 在 Read % 上最高 (94%)** — 因为写很少 (只 6%)
+- **三种 workload 各自在不同维度称王**,**不能用一个顶替另一个**
 
 ---
 
-## 📑 第 10 页 — 对 fio_sweep 的诚实评价
+## 📑 第 10 页 — 对 fio_sweep 的诚实评价 (新加入)
 
 **文字要点:**
 
-| 维度 | synthetic | sharegpt / burstgpt |
+| 维度 | fio_sweep (旧"synthetic") | default-kvcache / sharegpt / burstgpt |
 |---|---|---|
 | 设备带宽上限标定 | ✅ 准确 | ⚠️ 应用层 |
 | 真实 LBA 跳跃分布 | ❌ 无 | ✅ 完整 |
 | 突发性 (CV) | ❌ 稳态 | ✅ 0.28-0.61 |
 | 应用语义 (decode vs prefill) | ❌ 丢失 | ✅ 保留 |
 
-**结论:** **fio_sweep 只适合做 device capability ceiling 标定,不适合用来评估 KV-cache SSD offload 的 TTFT 收益。**
+**结论:** **fio_sweep 只适合做 device capability ceiling 标定,不适合用来评估 KV-cache SSD offload 的 TTFT 收益。**因此本三路对比**只放 kv-cache.py 实跑的数据**。
 
 **配图建议:**
 - 表格放大 (单独占一页)
@@ -150,8 +155,8 @@
 ## 📑 第 11 页 — 跨报告结论的一致性
 
 **文字要点:**
-- 早上那份 (real-io 281 GiB) → 读 95% 大跳跃 / 写 75% 连续 ✅ **与 burstgpt 89% / sharegpt 57% 完全一致**
-- 上一份 (sharegpt vs burstgpt 6.5M events) → 2.5× IOPS, 2.6× BW ✅ **本文加入 synthetic 维度,明确 fio_sweep 不能顶替**
+- 早上那份 (default-kvcache) → 读 95% 大跳跃 / 写 75% 连续 ✅ **与 burstgpt 89% / sharegpt 57% 完全一致**
+- 上一份 (sharegpt vs burstgpt) → 2.5× IOPS, 2.6× BW ✅ **本文加入 default-kvcache 维度,明确 fio_sweep 不能顶替**
 - **三份报告相互佐证**,**核心结论稳定**:**真实 KV cache I/O 是读写分裂的双模式**(随机读 / 顺序写)
 
 **配图建议:**
@@ -165,12 +170,15 @@
 **文字要点:**
 1. **保留 fio_sweep** 作为 device sanity check (QD=32 11.9M token/s 是合理上限)
 2. **sharegpt / burstgpt 原始 CSV 保留** 在 `results/kvcache-profile/`(390MB,不入 git 作 audit trail)
-3. **评估 Mooncake SSD offload 时用 burstgpt** 做随机读压力(更接近 DGX 原始 benchmark)
-4. **混合压力用 sharegpt** (prefix cache 命中 + 部分新问题)
-5. **下一步**:把 Mooncake 真实 SSD offload 跑在 burstgpt tracepoint 监控下,验证 "30+ IOPS / 4+ GiB/s" 路径下 SSD offload 是否真能避免 DRAM pool cliff
+3. **评估 Mooncake SSD offload 时**:
+   - **稳态 + 随机读压力** → 用 burstgpt (更接近 DGX 原始 benchmark)
+   - **混合压力** → 用 sharegpt (有 prefix cache 命中)
+   - **baseline** → 用 default-kvcache (workload runner 默认)
+4. **下一步**:把 Mooncake 真实 SSD offload 跑在 burstgpt tracepoint 监控下,验证 "30+ IOPS / 4+ GiB/s" 路径下 SSD offload 是否真能避免 DRAM pool cliff
+5. **追加工作**:补 default-kvcache 的 3s 窗时间序列 CSV,跟 sharegpt/burstgpt 同粒度可比
 
 **配图建议:**
-- 时间线 / 路线图 "sharegpt trace → burstgpt trace → Mooncake 实测"
+- 时间线 / 路线图 "default-kvcache trace → sharegpt trace → burstgpt trace → Mooncake 实测"
 - 或者用第 5 页 dashboard 缩略图作背景 + 文字叠加
 
 ---
@@ -179,11 +187,11 @@
 
 | 元素 | 风格 |
 |---|---|
-| 主色 | 深色 (#1f1f1f) / 白底切换 |
-| 强调色 | 黄 #ffd60a (synthetic) / 青 #00e5ff (sharegpt) / 品红 #ff006e (burstgpt) |
-| 字体 | Noto Sans CJK SC (中文) / Source Sans Pro (英文) |
+| 主色 | 深色 (#0d1117 页面 / #161b22 卡片) |
+| 强调色 | 蓝 #7fbcff (default) / 浅蓝 #a5d6ff (sharegpt) / 黄 #ffd60a (burstgpt) |
+| 字体 | Noto Sans CJK JP (中文) / Source Sans Pro (英文) |
 | 图表风格 | matplotlib 深色背景 + 高对比色 (跟 `kv-cache-real-io/01_signal_dashboard.png` 一致) |
-| 页脚 | 每页底部小字 "data: tracepoint 实测 | date: 2026-06-29 | page N/12" |
+| 页脚 | 每页底部小字 "data: tracepoint 实测 | date: 2026-06-29 | v2 2026-06-30 | page N/12" |
 
 ---
 
@@ -210,11 +218,11 @@
 3. **第 10 页** 是给老板/产品看的页,简化 "fio_sweep 不能顶替真 benchmark" 一句话
 4. **第 12 页** 给老板看行动建议,3 条 bullet 即可
 5. 准备 2-3 个 FAQ 备用:
-   - Q: 为什么没用 llama3.2-3b / qwen3-4b-instruct? → A: 当时 checkpoint 没装,用了 llama3.1-8b,效果一致
-   - Q: 为什么不用 100 GiB 预分配? → A: 根盘只剩 73 GB,workload runner 不阻塞
-   - Q: 为什么 fio_sweep QD=1024 时 IOPS 反而下降? → A: 队列竞争 + 单盘 controller 不够,详见 sharegpt_qd1024 数据
+   - Q: 为什么 default-kvcache 用 TP=8,sharegpt/burstgpt 用 TP=1? → A: 早上报告按 mvp 模板跑,新两份独立跑,TP 差异 → batch 差异 → IO 差异。这是 workload 配置差异,不是系统差异
+   - Q: 为什么 default-kvcache 没 3s 窗? → A: 早上处理路径用 10s 窗 + summary 模式,没保留 3s 明细。已记为追加工作
+   - Q: 为什么 fio_sweep 不能顶替? → A: (1) 没有 PID 连续性,无 LBA 跳跃分布;(2) 块大小多样不符;(3) 稳态负载无突发性;(4) 应用语义丢失
 
 ---
 
-*文档生成时间:2026-06-29*
-*配套分析脚本:`scripts/io_three_way_comparison.py` (可重新生成所有图)*
+*文档版本:* v2 (2026-06-30,默认 kvcache 替换 fio_sweep)
+*配套分析脚本:* `scripts/io_three_way_comparison.py` (可重新生成所有图)

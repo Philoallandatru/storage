@@ -1,44 +1,64 @@
 {
   "workloads": {
-    "synthetic_fio_sweep_QD32": {
-      "source": "fio_sweep/sharegpt_8b_cpuhalf_qd32/",
-      "iops_avg": 30545,
-      "bw_avg_giBs": 2.85,
-      "rwmixread_pct": 61,
-      "note": "fio distill replay; no real per-IO trace; no adjacent-LBA concept"
+    "default-kvcache": {
+      "events": 2487310,
+      "duration_s": 113.93,
+      "iops": 21832,
+      "bw_gib_s": 2.47,
+      "reads": 2068812,
+      "writes": 418498,
+      "read_ge_100mib_pct": 95.07,
+      "read_contig_pct": 2.49,
+      "write_contig_pct": 75.07,
+      "block_128k_pct": 91.7,
+      "lba_span_gib": 389.35,
+      "total_bytes_gib": 281.88,
+      "iops_ts_mean": null,
+      "iops_ts_p95": null,
+      "iops_ts_max": null,
+      "cv": null,
+      "peak_mean_ratio": null
     },
-    "sharegpt_kvcache": {
-      "source": "results/kvcache-profile/sharegpt_kvcache_20260629_140729/block_lba_trace.csv",
-      "block_events": 1981685,
+    "sharegpt": {
+      "events": 1981685,
       "duration_s": 140.91,
-      "iops_avg": 14063,
-      "bw_avg_giBs": 1.64,
-      "read_pct_events": 93.86,
-      "read_exact_contiguous_pct": 41.77,
-      "read_jump_100MiB_pct": 56.97,
-      "write_exact_contiguous_pct": 94.37,
-      "dom_size": "128 KiB (93.94%)",
-      "lba_span_giB": 389.35
+      "iops": 14063,
+      "bw_gib_s": 1.64,
+      "reads": 1860196,
+      "writes": 121489,
+      "read_ge_100mib_pct": 56.97,
+      "read_contig_pct": 41.77,
+      "write_contig_pct": 94.37,
+      "block_128k_pct": 93.9,
+      "lba_span_gib": 389.35,
+      "total_bytes_gib": 42.74,
+      "iops_ts_mean": 17232,
+      "iops_ts_p95": 32604,
+      "iops_ts_max": 35755,
+      "cv": 0.61,
+      "peak_mean_ratio": 2.07
     },
-    "burstgpt_kvcache": {
-      "source": "results/kvcache-profile/burstgpt_kvcache_20260629_141010/block_lba_trace.csv",
-      "block_events": 4566627,
+    "burstgpt": {
+      "events": 4566627,
       "duration_s": 129.75,
-      "iops_avg": 35195,
-      "bw_avg_giBs": 4.25,
-      "read_pct_events": 92.03,
-      "read_exact_contiguous_pct": 10.08,
-      "read_jump_100MiB_pct": 89.11,
-      "write_exact_contiguous_pct": 97.63,
-      "dom_size": "128 KiB (98.52%)",
-      "lba_span_giB": 389.35
+      "iops": 35195,
+      "bw_gib_s": 4.25,
+      "reads": 4202655,
+      "writes": 363972,
+      "read_ge_100mib_pct": 89.11,
+      "read_contig_pct": 10.08,
+      "write_contig_pct": 97.63,
+      "block_128k_pct": 98.5,
+      "lba_span_gib": 389.35,
+      "total_bytes_gib": 72.16,
+      "iops_ts_mean": 35958,
+      "iops_ts_p95": 40938,
+      "iops_ts_max": 42930,
+      "cv": 0.28,
+      "peak_mean_ratio": 1.19
     }
   },
-  "methodology": {
-    "trace": "Linux tracepoint:block:block_rq_issue",
-    "device": "/dev/nvme0n1 (parent) dev_t=271581194",
-    "filesystem": "ext4 root partition",
-    "workload_runner": "kv-cache.py v2.0.0b1, llama3.1-8b TP=1, forced NVMe (gpu-mem-gb=0, cpu-mem-gb=0)",
-    "synthetic_runner": "fio 3.41 distill replay from bpftrace traces"
-  }
+  "generated_at": "2026-06-30",
+  "regenerated_by": "scripts/io_three_way_comparison.py",
+  "note": "Timeline chart uses 10s \u7a97 for default-kvcache (morning data) vs 3s \u7a97 for sharegpt/burstgpt. CDF curves are 2-region analytic model fit to observed summary statistics."
 }

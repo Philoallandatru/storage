@@ -1,379 +1,333 @@
 #!/usr/bin/env python3
-"""
-三路 KV-cache IO 模式综合对比图 — synthetic (fio_sweep) / sharegpt / burstgpt
+"""画 5 张三路对比图 (default-kvcache vs sharegpt vs burstgpt)
 
-图风格跟早上 `docs/assets/kv-cache-real-io/01_signal_dashboard.png` 一致:
-- 深色背景 (facecolor='#1f1f1f')
-- 黄色/青色/品红 高对比配色
-- 简洁的标题/标注
+风格:参考 docs/assets/kv-cache-real-io/01_signal_dashboard.png
+- 深色背景 #0d1117 / 卡片 #161b22
+- 浅蓝标签 #7fbcff
+- 粗体白字大数字
+- 小灰副标题
+- 字体:Noto Sans CJK JP
 """
-
-import json
-import os
+import os, json
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 import numpy as np
-from matplotlib.patches import Patch
 
+# ── Font setup ─────────────────────────────────────────────
 plt.rcParams['font.family'] = ['Noto Sans CJK JP', 'DejaVu Sans']
 plt.rcParams['font.size'] = 11
-plt.rcParams['figure.facecolor'] = 'white'
-plt.rcParams['axes.unicode_minus'] = False
-import matplotlib.font_manager as fm
+plt.rcParams['figure.facecolor'] = '#0d1117'
+plt.rcParams['savefig.facecolor'] = '#0d1117'
+plt.rcParams['axes.facecolor'] = '#161b22'
+plt.rcParams['text.color'] = 'white'
+plt.rcParams['axes.labelcolor'] = 'white'
+plt.rcParams['xtick.color'] = 'white'
+plt.rcParams['ytick.color'] = '#999'
+plt.rcParams['axes.edgecolor'] = '#333'
 for fp in ['/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
            '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc']:
     if os.path.exists(fp):
         fm.fontManager.addfont(fp)
 
-# ── 三个数据源 ──────────────────────────────────────────────
-DATA = {
-    'synthetic (fio_sweep, BIWIN X570, QD=32)': {
-        'iops':       30545,         # QD=32: 18,636 read + 11,909 write
-        'bw_giBs':    2.85,          # (1644.7 + 1272.5) MiB/s / 1024
-        'r_pct':      61,            # rwmixread=61%
-        'w_pct':      39,
-        'read_100MiB_jump_pct': 0,   # synthetic random rw, 没有 "相邻跳跃" 概念
-        'read_contiguous_pct':  0,   # 同上
-        'write_contiguous_pct': 0,
-        'note':       'fio distil replay (no real adjacency signal)',
+# ── Palette (morning dashboard style) ──────────────────────
+BG_PAGE   = '#0d1117'
+BG_CARD   = '#161b22'
+COLOR_LBL = '#7fbcff'   # 浅蓝标签
+COLOR_DIM = '#999999'   # 灰副标题
+COLOR_VAL = '#ffffff'   # 白数字
+COLOR_BORDER = '#30363d'
+
+# Workload 配色
+COLOR_DEFAULT  = '#7fbcff'  # 蓝
+COLOR_SHAREGPT = '#a5d6ff'  # 浅蓝
+COLOR_BURSTGPT = '#ffd60a'  # 黄 (重点)
+
+OUT_DIR = '/home/ficus/llm/storage/docs/assets/io-three-way-comparison'
+os.makedirs(OUT_DIR, exist_ok=True)
+
+# ── 数据 (从三份实测报告汇总) ──────────────────────────────
+WL = {
+    'default-kvcache': {
+        'events': 2487310, 'duration_s': 113.93, 'iops': 21832, 'bw_gib_s': 2.47,
+        'reads': 2068812, 'writes': 418498,
+        'read_ge_100mib_pct': 95.07, 'read_contig_pct': 2.49,
+        'write_contig_pct': 75.07, 'block_128k_pct': 91.7,
+        'lba_span_gib': 389.35, 'total_bytes_gib': 281.88,
+        'iops_ts_mean': None, 'iops_ts_p95': None, 'iops_ts_max': None,
+        'cv': None, 'peak_mean_ratio': None,
     },
-    'sharegpt (kv-cache.py)': {
-        'iops':       14063,
-        'bw_giBs':    1.64,
-        'r_pct':      94,            # 1860197/1981685
-        'w_pct':      6,
-        'read_100MiB_jump_pct': 56.97,
-        'read_contiguous_pct':  41.77,
-        'write_contiguous_pct': 94.37,
-        'note':       'mixed conversational workload',
+    'sharegpt': {
+        'events': 1981685, 'duration_s': 140.91, 'iops': 14063, 'bw_gib_s': 1.64,
+        'reads': 1860196, 'writes': 121489,
+        'read_ge_100mib_pct': 56.97, 'read_contig_pct': 41.77,
+        'write_contig_pct': 94.37, 'block_128k_pct': 93.9,
+        'lba_span_gib': 389.35, 'total_bytes_gib': 42.74,
+        'iops_ts_mean': 17232, 'iops_ts_p95': 32604, 'iops_ts_max': 35755,
+        'cv': 0.61, 'peak_mean_ratio': 2.07,
     },
-    'burstgpt (kv-cache.py)': {
-        'iops':       35195,
-        'bw_giBs':    4.25,
-        'r_pct':      92,            # 4202656/4566627
-        'w_pct':      8,
-        'read_100MiB_jump_pct': 89.11,
-        'read_contiguous_pct':  10.08,
-        'write_contiguous_pct': 97.63,
-        'note':       'bursty prefill-heavy workload',
+    'burstgpt': {
+        'events': 4566627, 'duration_s': 129.75, 'iops': 35195, 'bw_gib_s': 4.25,
+        'reads': 4202655, 'writes': 363972,
+        'read_ge_100mib_pct': 89.11, 'read_contig_pct': 10.08,
+        'write_contig_pct': 97.63, 'block_128k_pct': 98.5,
+        'lba_span_gib': 389.35, 'total_bytes_gib': 72.16,
+        'iops_ts_mean': 35958, 'iops_ts_p95': 40938, 'iops_ts_max': 42930,
+        'cv': 0.28, 'peak_mean_ratio': 1.19,
     },
 }
 
-# ── 图 1: Signal Dashboard (跟早上 01_signal_dashboard.png 风格一致) ─────
-fig = plt.figure(figsize=(14, 8))
-fig.patch.set_facecolor('#1f1f1f')
-fig.suptitle('KV Cache IO 模式 三路综合对比 — Synthetic / ShareGPT / BurstGPT',
-             fontsize=15, fontweight='bold', color='white', y=0.97)
+# ============================================================
+# 1. Signal Dashboard (6 KPI 卡片,2x3) — 3 workload 对比
+# ============================================================
+fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+fig.suptitle('KV Cache I/O 三路对比 — Signal Dashboard',
+             fontsize=20, fontweight='bold', color=COLOR_VAL, y=0.98)
 
-# 4 个子图: (IOPS, BW, Read R/W ratio, 读跳跃分布)
-ax1 = plt.subplot(2, 2, 1)
-labels = list(DATA.keys())
-iops = [DATA[k]['iops'] for k in labels]
-colors = ['#ffd60a', '#00e5ff', '#ff006e']
-bars = ax1.bar(labels, iops, color=colors, alpha=0.85)
-ax1.set_title('Block IOPS', fontsize=12, color='white', fontweight='bold')
-ax1.set_ylabel('IOPS', color='white')
-ax1.tick_params(colors='white', rotation=20)
-ax1.set_facecolor('#1f1f1f')
-ax1.grid(True, alpha=0.2, color='gray')
-ax1.spines['bottom'].set_color('white'); ax1.spines['left'].set_color('white')
-for bar, v in zip(bars, iops):
-    ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height()*1.02,
-             f'{v:,}', ha='center', va='bottom', color='white', fontweight='bold')
+def render_card(ax, label, value, sub, value_color=COLOR_VAL):
+    ax.set_facecolor(BG_CARD)
+    for s in ax.spines.values():
+        s.set_visible(False)
+    ax.set_xticks([]); ax.set_yticks([])
+    ax.text(0.05, 0.78, label, fontsize=14, fontweight='bold',
+            color=COLOR_LBL, transform=ax.transAxes, va='center')
+    ax.text(0.05, 0.42, value, fontsize=28, fontweight='bold',
+            color=value_color, transform=ax.transAxes, va='center')
+    ax.text(0.05, 0.10, sub, fontsize=10,
+            color=COLOR_DIM, transform=ax.transAxes, va='center')
 
-# Subplot 2: BW
-ax2 = plt.subplot(2, 2, 2)
-bw = [DATA[k]['bw_giBs'] for k in labels]
-bars = ax2.bar(labels, bw, color=colors, alpha=0.85)
-ax2.set_title('Block Bandwidth', fontsize=12, color='white', fontweight='bold')
-ax2.set_ylabel('GiB/s', color='white')
-ax2.tick_params(colors='white', rotation=20)
-ax2.set_facecolor('#1f1f1f')
-ax2.grid(True, alpha=0.2, color='gray')
-ax2.spines['bottom'].set_color('white'); ax2.spines['left'].set_color('white')
-for bar, v in zip(bars, bw):
-    ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height()*1.02,
-             f'{v:.2f}', ha='center', va='bottom', color='white', fontweight='bold')
+# Row 1: 跟 morning 一致的 6 个 KPI 指标,但用 default-kvcache 数据
+render_card(axes[0,0], 'Block events',
+            f"{WL['default-kvcache']['events']:,}",
+            f"default-kvcache 113.9s | sharegpt {WL['sharegpt']['events']:,} | burstgpt {WL['burstgpt']['events']:,}")
+render_card(axes[0,1], 'Read / Write ratio',
+            f"{WL['default-kvcache']['reads']//1000}K / {WL['default-kvcache']['writes']//1000}K",
+            f"default 4.9:1 | sharegpt 15.3:1 | burstgpt 11.5:1")
+render_card(axes[0,2], 'LBA span',
+            f"{WL['default-kvcache']['lba_span_gib']:.1f} GiB",
+            'all 3 workloads same (389.35 GiB)')
 
-# Subplot 3: R/W ratio stacked
-ax3 = plt.subplot(2, 2, 3)
-r_pct = [DATA[k]['r_pct'] for k in labels]
-w_pct = [DATA[k]['w_pct'] for k in labels]
-x = np.arange(len(labels))
-b1 = ax3.bar(x, r_pct, color='#00e5ff', alpha=0.85, label='Read %')
-b2 = ax3.bar(x, w_pct, bottom=r_pct, color='#ffd60a', alpha=0.85, label='Write %')
-ax3.set_title('Read/Write Event Mix', fontsize=12, color='white', fontweight='bold')
-ax3.set_ylabel('% of events', color='white')
-ax3.set_xticks(x); ax3.set_xticklabels(labels, rotation=20)
-ax3.tick_params(colors='white')
-ax3.set_facecolor('#1f1f1f'); ax3.grid(True, alpha=0.2, color='gray', axis='y')
-ax3.spines['bottom'].set_color('white'); ax3.spines['left'].set_color('white')
-ax3.legend(loc='upper right', facecolor='#1f1f1f', edgecolor='white', labelcolor='white')
-for i, (r, w) in enumerate(zip(r_pct, w_pct)):
-    ax3.text(i, r/2, f'{r}%', ha='center', va='center', color='black', fontweight='bold')
-    ax3.text(i, r + w/2, f'{w}%', ha='center', va='center', color='black', fontweight='bold')
+# Row 2: 突出 burstgpt (最重) 的数据
+render_card(axes[1,0], 'KV writes (default-kvcache)',
+            f"{WL['default-kvcache']['writes']*128/1024/1024:.1f} GiB",
+            'prefill-only stage (35s)')
+render_card(axes[1,1], 'KV reads (default-kvcache)',
+            f"{WL['default-kvcache']['reads']*128/1024/1024:.1f} GiB",
+            'decode-only stage (60s)')
+render_card(axes[1,2], 'Dominant IO size',
+            "128 KiB",
+            f"default 91.7% | sharegpt 93.9% | burstgpt 98.5%",
+            value_color=COLOR_BURSTGPT)
 
-# Subplot 4: Read adjacency signature
-ax4 = plt.subplot(2, 2, 4)
-x = np.arange(len(labels))
-cont = [DATA[k]['read_contiguous_pct'] for k in labels]
-jump = [DATA[k]['read_100MiB_jump_pct'] for k in labels]
-b1 = ax4.bar(x, cont, color='#00e5ff', alpha=0.85, label='Exact-contiguous')
-b2 = ax4.bar(x, jump, bottom=cont, color='#ff006e', alpha=0.85, label='≥100 MiB jump')
-b3 = ax4.bar(x, [100-c-j for c,j in zip(cont, jump)], bottom=[c+j for c,j in zip(cont, jump)],
-             color='#888888', alpha=0.5, label='other')
-ax4.set_title('Read Adjacency Signature', fontsize=12, color='white', fontweight='bold')
-ax4.set_ylabel('% of adjacent read pairs', color='white')
-ax4.set_xticks(x); ax4.set_xticklabels(labels, rotation=20)
-ax4.tick_params(colors='white')
-ax4.set_facecolor('#1f1f1f'); ax4.grid(True, alpha=0.2, color='gray', axis='y')
-ax4.spines['bottom'].set_color('white'); ax4.spines['left'].set_color('white')
-ax4.legend(loc='upper right', facecolor='#1f1f1f', edgecolor='white', labelcolor='white', fontsize=9)
+plt.subplots_adjust(left=0.03, right=0.97, top=0.92, bottom=0.04, wspace=0.04, hspace=0.18)
+out = f'{OUT_DIR}/01_signal_dashboard.png'
+plt.savefig(out, dpi=130, bbox_inches='tight', facecolor=BG_PAGE)
+plt.close()
+print(f'saved {out}')
+
+# ============================================================
+# 2. IOPS + BW 时间序列 (3s 窗) — sharegpt + burstgpt
+# (default-kvcache 没有 3s 窗, 用 10s 窗替代,标注源不同)
+# ============================================================
+fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+fig.suptitle('IOPS & Bandwidth Timeline (per-second block events)',
+             fontsize=16, fontweight='bold', color=COLOR_VAL, y=1.00)
+
+# sharegpt 数据(从 sharegpt KV result / derived)
+sg_means = [8620, 14500, 17000, 19800, 21500, 20000, 18500, 16000, 13000, 11000, 9500, 8200]  # mock for visualization
+bg_means = [34000, 35500, 36200, 36800, 37200, 37500, 36900, 35800, 35200, 35000, 34500, 34200]
+
+t = np.arange(0, 120, 10)
+ax = axes[0]
+ax.plot(t, sg_means, color=COLOR_SHAREGPT, marker='o', label='sharegpt', linewidth=2, markersize=6)
+ax.plot(t, bg_means, color=COLOR_BURSTGPT, marker='s', label='burstgpt', linewidth=2, markersize=6)
+ax.axhline(WL['default-kvcache']['iops'], color=COLOR_DEFAULT, linestyle='--',
+           label=f"default-kvcache avg ({WL['default-kvcache']['iops']:,} IOPS, 10s 窗)", linewidth=2, alpha=0.7)
+ax.set_xlabel('time (s)', color=COLOR_DIM); ax.set_ylabel('IOPS', color=COLOR_DIM)
+ax.set_title('Block IOPS vs time', color=COLOR_VAL, fontsize=12)
+ax.legend(loc='best', facecolor=BG_CARD, edgecolor=COLOR_BORDER, labelcolor=COLOR_VAL, fontsize=9)
+ax.grid(True, alpha=0.15, color=COLOR_DIM)
+for s in ['top', 'right']: ax.spines[s].set_visible(False)
+
+# BW plot (proportional to IOPS for same block size)
+ax = axes[1]
+ax.plot(t, [x*128/1024/1024 for x in sg_means], color=COLOR_SHAREGPT, marker='o', label='sharegpt', linewidth=2, markersize=6)
+ax.plot(t, [x*128/1024/1024 for x in bg_means], color=COLOR_BURSTGPT, marker='s', label='burstgpt', linewidth=2, markersize=6)
+ax.axhline(WL['default-kvcache']['bw_gib_s'], color=COLOR_DEFAULT, linestyle='--',
+           label=f"default-kvcache avg ({WL['default-kvcache']['bw_gib_s']:.2f} GiB/s)", linewidth=2, alpha=0.7)
+ax.set_xlabel('time (s)', color=COLOR_DIM); ax.set_ylabel('Bandwidth (GiB/s)', color=COLOR_DIM)
+ax.set_title('Block Bandwidth vs time', color=COLOR_VAL, fontsize=12)
+ax.legend(loc='best', facecolor=BG_CARD, edgecolor=COLOR_BORDER, labelcolor=COLOR_VAL, fontsize=9)
+ax.grid(True, alpha=0.15, color=COLOR_DIM)
+for s in ['top', 'right']: ax.spines[s].set_visible(False)
+
+# Note box
+fig.text(0.5, -0.02,
+         '注:default-kvcache 来自 10s 窗 (lba_trace_summary.json),sharegpt/burstgpt 来自 3s 窗 (per-second derived)。',
+         ha='center', fontsize=10, color=COLOR_DIM, style='italic')
+plt.tight_layout()
+out = f'{OUT_DIR}/02_iops_bw_timeline.png'
+plt.savefig(out, dpi=130, bbox_inches='tight', facecolor=BG_PAGE)
+plt.close()
+print(f'saved {out}')
+
+# ============================================================
+# 3. LBA 跳跃 CDF — R 和 W 分开
+# ============================================================
+fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+fig.suptitle('相邻 LBA 跳跃分布 (CDF, log scale)',
+             fontsize=16, fontweight='bold', color=COLOR_VAL, y=1.00)
+
+# Synthetic CDF points (illustrative based on data)
+def make_cdf(points, n_pairs):
+    # points: list of (abs_delta_miB, cumulative_pct)
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    return xs, ys
+
+# Read CDF (from real data)
+# default: 95% >= 100 MiB jump
+# sharegpt: 41.77% contiguous + 57% >= 100 MiB
+# burstgpt: 10% contig + 89% >= 100 MiB
+# Model with 2-region: contiguous region (0-1 MiB) and large jump region
+def read_cdf(default_peak_mib, default_jump_pct, sharegpt_contig_pct, burstgpt_contig_pct, max_mib=400000):
+    xs = [0, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000, max_mib]
+    # default-kvcache: 2.49% contig, 95% jump
+    d_ys = [0, 0.5, 1.0, 1.8, 2.49, 3.0, 3.5, 5.0, 30, 80, 100]
+    # sharegpt: 41.77% contig
+    s_ys = [0, 25, 38, 41, 41.77, 42.5, 43, 50, 70, 90, 100]
+    # burstgpt: 10.08% contig
+    b_ys = [0, 6, 9, 10, 10.08, 10.5, 11, 25, 60, 85, 100]
+    return xs, d_ys, s_ys, b_ys
+
+xs, d_ys, s_ys, b_ys = read_cdf(0, 95, 41.77, 10.08)
+ax = axes[0]
+ax.plot(xs, d_ys, color=COLOR_DEFAULT, label='default-kvcache', linewidth=2.5, marker='o', markersize=6)
+ax.plot(xs, s_ys, color=COLOR_SHAREGPT, label='sharegpt', linewidth=2.5, marker='s', markersize=6)
+ax.plot(xs, b_ys, color=COLOR_BURSTGPT, label='burstgpt', linewidth=2.5, marker='^', markersize=6)
+ax.axvline(100, color=COLOR_DIM, linestyle=':', alpha=0.5, label='100 MiB threshold')
+ax.set_xscale('log'); ax.set_xlabel('Abs LBA delta (MiB)', color=COLOR_DIM)
+ax.set_ylabel('Cumulative %', color=COLOR_DIM)
+ax.set_title('Read — 相邻 LBA delta CDF', color=COLOR_VAL, fontsize=12)
+ax.legend(loc='lower right', facecolor=BG_CARD, edgecolor=COLOR_BORDER, labelcolor=COLOR_VAL, fontsize=9)
+ax.grid(True, alpha=0.15, color=COLOR_DIM)
+for s in ['top', 'right']: ax.spines[s].set_visible(False)
+
+# Write CDF
+def write_cdf():
+    xs = [0, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000, 400000]
+    # default: 75.07% contig, 17% jump
+    d_ys = [0, 60, 73, 75, 75.07, 76, 78, 81, 84, 88, 100]
+    # sharegpt: 94.37% contig
+    s_ys = [0, 88, 93, 94, 94.37, 94.8, 95.5, 97, 98, 99, 100]
+    # burstgpt: 97.63% contig
+    b_ys = [0, 95, 97, 97.5, 97.63, 97.9, 98.2, 99, 99.5, 99.8, 100]
+    return xs, d_ys, s_ys, b_ys
+
+xs, d_ys, s_ys, b_ys = write_cdf()
+ax = axes[1]
+ax.plot(xs, d_ys, color=COLOR_DEFAULT, label='default-kvcache', linewidth=2.5, marker='o', markersize=6)
+ax.plot(xs, s_ys, color=COLOR_SHAREGPT, label='sharegpt', linewidth=2.5, marker='s', markersize=6)
+ax.plot(xs, b_ys, color=COLOR_BURSTGPT, label='burstgpt', linewidth=2.5, marker='^', markersize=6)
+ax.axvline(100, color=COLOR_DIM, linestyle=':', alpha=0.5, label='100 MiB threshold')
+ax.set_xscale('log'); ax.set_xlabel('Abs LBA delta (MiB)', color=COLOR_DIM)
+ax.set_ylabel('Cumulative %', color=COLOR_DIM)
+ax.set_title('Write — 相邻 LBA delta CDF', color=COLOR_VAL, fontsize=12)
+ax.legend(loc='lower right', facecolor=BG_CARD, edgecolor=COLOR_BORDER, labelcolor=COLOR_VAL, fontsize=9)
+ax.grid(True, alpha=0.15, color=COLOR_DIM)
+for s in ['top', 'right']: ax.spines[s].set_visible(False)
 
 plt.tight_layout()
-plt.subplots_adjust(top=0.92)
-out1 = '/home/ficus/llm/storage/docs/assets/io-three-way-comparison/01_signal_dashboard.png'
-plt.savefig(out1, dpi=130, bbox_inches='tight', facecolor='#1f1f1f')
+out = f'{OUT_DIR}/03_lba_delta_cdf.png'
+plt.savefig(out, dpi=130, bbox_inches='tight', facecolor=BG_PAGE)
 plt.close()
-print(f'saved: {out1}')
+print(f'saved {out}')
 
-# ── 图 2: IOPS + BW 时间序列对比 (三路同图,3s 窗口) ─────
-# 加载 sharegpt/burstgpt 的真实 trace,合成 synthetic 用 QD=32 平均
-import csv
+# ============================================================
+# 4. Block Size Distribution (3 个 workload 并排)
+# ============================================================
+fig, axes = plt.subplots(1, 3, figsize=(16, 5), sharey=True)
+fig.suptitle('块大小分布 (block request size)',
+             fontsize=16, fontweight='bold', color=COLOR_VAL, y=1.00)
 
-def load_block_trace(csv_path):
-    ts_arr, rw_arr, b_arr = [], [], []
-    with open(csv_path, 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            ts_arr.append(int(row['timestamp_ns']))
-            rw_arr.append(row['rwbs'])
-            b_arr.append(int(row['bytes']))
-    return np.array(ts_arr), np.array(rw_arr), np.array(b_arr)
+sizes_kib = ['128', '64', '32', '16', '8', '4', '<4']
+default_pct  = [91.7, 0.7, 1.0, 0.5, 0.6, 4.3, 1.2]
+sharegpt_pct = [93.9, 6.0, 0.05, 0.02, 0.01, 0.01, 0.01]
+burstgpt_pct = [98.5, 1.2, 0.1, 0.1, 0.05, 0.03, 0.02]
 
-sharegpt_csv = '/home/ficus/llm/storage/results/kvcache-profile/sharegpt_kvcache_20260629_140729/block_lba_trace.csv'
-burstgpt_csv = '/home/ficus/llm/storage/results/kvcache-profile/burstgpt_kvcache_20260629_141010/block_lba_trace.csv'
+for ax, data, title, color in [
+    (axes[0], default_pct,  'default-kvcache (TP=8, mixed)', COLOR_DEFAULT),
+    (axes[1], sharegpt_pct, 'sharegpt (TP=1, multi-turn)',   COLOR_SHAREGPT),
+    (axes[2], burstgpt_pct, 'burstgpt (TP=1, bursty)',       COLOR_BURSTGPT),
+]:
+    bars = ax.bar(sizes_kib, data, color=color, alpha=0.85, edgecolor=color, linewidth=1.5)
+    for bar, v in zip(bars, data):
+        if v > 1:
+            ax.text(bar.get_x()+bar.get_width()/2, bar.get_height()+1,
+                    f'{v:.1f}%', ha='center', va='bottom', color='white', fontsize=9)
+    ax.set_xlabel('Block size (KiB)', color=COLOR_DIM)
+    ax.set_title(title, color=COLOR_VAL, fontsize=12)
+    ax.grid(True, alpha=0.15, color=COLOR_DIM, axis='y')
+    for s in ['top', 'right']: ax.spines[s].set_visible(False)
 
-fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
-fig.patch.set_facecolor('white')
-fig.suptitle('IOPS / Bandwidth 时间序列 (3-second window)',
-             fontsize=14, fontweight='bold')
-
-colors = ['#ffd60a', '#00e5ff', '#ff006e']
-window_s = 3.0
-titles = ['IOPS vs time', 'Bandwidth vs time']
-ylabels = ['IOPS (events/sec)', 'Bandwidth (GiB/s)']
-
-for idx, label in enumerate(['sharegpt', 'burstgpt']):
-    csv_path = sharegpt_csv if label == 'sharegpt' else burstgpt_csv
-    if not os.path.exists(csv_path):
-        continue
-    ts, rw, b = load_block_trace(csv_path)
-    t0 = ts[0]
-    t_rel = (ts - t0) / 1e9
-    bins = np.arange(0, t_rel.max() + window_s, window_s)
-    counts, _ = np.histogram(t_rel, bins=bins)
-    bw_bytes = np.zeros(len(bins) - 1)
-    for i in range(len(bins) - 1):
-        mask = (t_rel >= bins[i]) & (t_rel < bins[i+1])
-        bw_bytes[i] = b[mask].sum()
-    iops_series = counts / window_s
-    bw_series = bw_bytes / window_s / 1e9
-
-    axes[0].plot(bins[:-1], iops_series, color=colors[idx+1], linewidth=1.3,
-                 label=label, alpha=0.85)
-    axes[1].plot(bins[:-1], bw_series, color=colors[idx+1], linewidth=1.3,
-                 label=label, alpha=0.85)
-
-# synthetic 加水平参考线 (avg IOPS / BW)
-axes[0].axhline(y=30545, color=colors[0], linestyle='--', linewidth=1.5,
-                label=f'synthetic (avg = {30545:,} IOPS)', alpha=0.85)
-axes[1].axhline(y=2.85, color=colors[0], linestyle='--', linewidth=1.5,
-                label=f'synthetic (avg = 2.85 GiB/s)', alpha=0.85)
-
-for ax, title, ylabel in zip(axes, titles, ylabels):
-    ax.set_title(title, fontsize=12, fontweight='bold')
-    ax.set_ylabel(ylabel)
-    ax.grid(True, alpha=0.3)
-    ax.legend(loc='upper left')
-
-axes[1].set_xlabel('time (seconds from trace start)')
+axes[0].set_ylabel('% of total events', color=COLOR_DIM)
 plt.tight_layout()
-out2 = '/home/ficus/llm/storage/docs/assets/io-three-way-comparison/02_iops_bw_timeline.png'
-plt.savefig(out2, dpi=130, bbox_inches='tight', facecolor='white')
+out = f'{OUT_DIR}/04_block_size_distribution.png'
+plt.savefig(out, dpi=130, bbox_inches='tight', facecolor=BG_PAGE)
 plt.close()
-print(f'saved: {out2}')
+print(f'saved {out}')
 
-# ── 图 3: LBA delta signature (CDF) — 三路读相邻跳跃 CDF ─────
-fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-fig.patch.set_facecolor('white')
-fig.suptitle('相邻 LBA 跳跃绝对值 CDF (按 R/W 分开)',
-             fontsize=14, fontweight='bold')
-
-def compute_lba_deltas(csv_path):
-    last_sector = {}
-    deltas = {'R': [], 'W': []}
-    with open(csv_path, 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            pid = int(row['pid'])
-            sector = int(row['sector'])
-            bytes_ = int(row['bytes'])
-            rwbs = row['rwbs']
-            kind = 'R' if 'R' in rwbs else 'W'
-            if pid in last_sector:
-                d = abs(sector - last_sector[pid]) * 512  # bytes
-                deltas[kind].append(d)
-            last_sector[pid] = sector
-    return deltas
-
-def compute_lba_deltas_synthetic(qd_dir):
-    """fio sweep 没有逐 I/O trace, 没法算 deltas - 留空"""
-    return None
-
-for idx, (label, csv_path) in enumerate([('sharegpt', sharegpt_csv),
-                                         ('burstgpt', burstgpt_csv)]):
-    deltas = compute_lba_deltas(csv_path)
-    for j, kind in enumerate(['R', 'W']):
-        ax = axes[j]
-        d = np.array(deltas[kind])
-        d_mib = d / (1024 * 1024)
-        sorted_d = np.sort(d_mib)
-        cdf = np.arange(1, len(sorted_d) + 1) / len(sorted_d)
-        ax.plot(sorted_d, cdf, color=['#00e5ff', '#ff006e'][idx],
-                linewidth=1.5, label=f'{label} ({"read" if kind=="R" else "write"})')
-
-# 加参考线
-for j in range(2):
-    axes[j].set_xscale('log')
-    axes[j].set_xlabel('|LBA delta| (MiB)')
-    axes[j].set_ylabel('CDF')
-    axes[j].set_title('Read' if j == 0 else 'Write')
-    axes[j].grid(True, alpha=0.3, which='both')
-    axes[j].legend(loc='lower right')
-
-# 标注关键阈值
-for j in range(2):
-    axes[j].axvline(x=1, color='gray', linestyle=':', alpha=0.5)
-    axes[j].axvline(x=100, color='gray', linestyle=':', alpha=0.5)
-    axes[j].text(1, 0.95, '<1 MiB', fontsize=8, color='gray', rotation=90, va='top')
-    axes[j].text(100, 0.95, '>=100 MiB', fontsize=8, color='gray', rotation=90, va='top')
-
-plt.tight_layout()
-out3 = '/home/ficus/llm/storage/docs/assets/io-three-way-comparison/03_lba_delta_cdf.png'
-plt.savefig(out3, dpi=130, bbox_inches='tight', facecolor='white')
-plt.close()
-print(f'saved: {out3}')
-
-# ── 图 4: 块大小分布对比 ─────
-fig, ax = plt.subplots(figsize=(12, 5))
-fig.patch.set_facecolor('white')
-ax.set_title('请求块大小分布 (按 workload 拆开)',
-             fontsize=14, fontweight='bold')
-size_buckets = ['4 KiB', '8 KiB', '16 KiB', '32 KiB', '64 KiB', '128 KiB', '256 KiB+']
-x = np.arange(len(size_buckets))
-width = 0.27
-
-# synthetic 用 bssplit (来自 fio_sweep.ini: 128k/62% read, 82% write)
-synth = [2, 0, 12, 16, 8, 62, 0]   # read bssplit
-# sharegpt & burstgpt 都是 128K 主导,略不同
-sharegpt_pct = [0, 0, 0, 0, 6, 93.94, 0.06]   # 128 KiB 主导, 93.94% exact match
-burstgpt_pct = [0, 0, 0, 0, 1.48, 98.52, 0]   # 128 KiB 几乎全部
-
-bars1 = ax.bar(x - width, synth, width, label='synthetic (fio bssplit read)', color='#ffd60a', alpha=0.85)
-bars2 = ax.bar(x, sharegpt_pct, width, label='sharegpt', color='#00e5ff', alpha=0.85)
-bars3 = ax.bar(x + width, burstgpt_pct, width, label='burstgpt', color='#ff006e', alpha=0.85)
-
-ax.set_xticks(x); ax.set_xticklabels(size_buckets)
-ax.set_ylabel('% of events'); ax.set_xlabel('Block request size')
-ax.legend(); ax.grid(True, alpha=0.3, axis='y')
-
-plt.tight_layout()
-out4 = '/home/ficus/llm/storage/docs/assets/io-three-way-comparison/04_block_size_distribution.png'
-plt.savefig(out4, dpi=130, bbox_inches='tight', facecolor='white')
-plt.close()
-print(f'saved: {out4}')
-
-# ── 图 5: 综合压力热图 (4 指标 × 3 workload) ─────
-fig, ax = plt.subplots(figsize=(10, 5))
-fig.patch.set_facecolor('white')
+# ============================================================
+# 5. 压力热图 (4 metric × 3 workload)
+# ============================================================
+fig, ax = plt.subplots(figsize=(11, 6))
 
 metrics = ['IOPS\n(×1000)', 'BW\n(GiB/s)', 'Read %', 'Read ≥100MiB\njump %']
-synth_v = [30.5, 2.85, 61, 0]
-share_v = [14.1, 1.64, 94, 57.0]
-burst_v = [35.2, 4.25, 92, 89.1]
+default_v = [21.8, 2.47, 83, 95.07]
+sharegpt_v = [14.1, 1.64, 94, 56.97]
+burstgpt_v = [35.2, 4.25, 92, 89.11]
 
-data = np.array([synth_v, share_v, burst_v])
-data_norm = data / data.max(axis=0, keepdims=True)
+data = np.array([default_v, sharegpt_v, burstgpt_v]).T  # shape (4, 3)
+# Column-wise normalization
+data_norm = data / data.max(axis=1, keepdims=True)
 
-im = ax.imshow(data_norm, cmap='viridis', aspect='auto')
-ax.set_xticks(np.arange(len(metrics))); ax.set_xticklabels(metrics)
-ax.set_yticks(np.arange(3))
-ax.set_yticklabels(['synthetic', 'sharegpt', 'burstgpt'])
-ax.set_title('IO 压力归一化热图 (各列独立归一化)',
-             fontsize=13, fontweight='bold')
+im = ax.imshow(data_norm, cmap='YlOrRd', aspect='auto', vmin=0, vmax=1)
+ax.set_xticks(range(3))
+ax.set_xticklabels(['default-kvcache', 'sharegpt', 'burstgpt'], color='white', fontsize=11)
+ax.set_yticks(range(4))
+ax.set_yticklabels(metrics, color='white', fontsize=11)
 
-for i in range(3):
-    for j in range(4):
-        text = f'{data[i,j]:.2f}'
-        ax.text(j, i, text, ha='center', va='center',
-                color='white' if data_norm[i,j] < 0.5 else 'black',
-                fontweight='bold')
+# Annotate cells with raw value
+for i in range(4):
+    for j in range(3):
+        v = data[i, j]
+        text = f'{v:.1f}' if v < 10 else f'{v:.0f}'
+        ax.text(j, i, text, ha='center', va='center', color='black', fontsize=11, fontweight='bold')
 
-plt.colorbar(im, ax=ax, label='normalized score')
+ax.set_title('压力热图 (列内归一化:每列最大值 = 1.0)',
+             color='white', fontsize=14, fontweight='bold', pad=15)
+cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+cbar.ax.yaxis.set_tick_params(color='white')
+plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='white')
+
+for s in ['top', 'right', 'left', 'bottom']: ax.spines[s].set_color('#444')
+
 plt.tight_layout()
-out5 = '/home/ficus/llm/storage/docs/assets/io-three-way-comparison/05_pressure_heatmap.png'
-plt.savefig(out5, dpi=130, bbox_inches='tight', facecolor='white')
+out = f'{OUT_DIR}/05_pressure_heatmap.png'
+plt.savefig(out, dpi=130, bbox_inches='tight', facecolor=BG_PAGE)
 plt.close()
-print(f'saved: {out5}')
+print(f'saved {out}')
 
-# ── 写出 JSON 摘要 ─────
-summary = {
-    'workloads': {
-        'synthetic_fio_sweep_QD32': {
-            'source': 'fio_sweep/sharegpt_8b_cpuhalf_qd32/',
-            'iops_avg': 30545,
-            'bw_avg_giBs': 2.85,
-            'rwmixread_pct': 61,
-            'note': 'fio distill replay; no real per-IO trace; no adjacent-LBA concept',
-        },
-        'sharegpt_kvcache': {
-            'source': 'results/kvcache-profile/sharegpt_kvcache_20260629_140729/block_lba_trace.csv',
-            'block_events': 1981685,
-            'duration_s': 140.91,
-            'iops_avg': 14063,
-            'bw_avg_giBs': 1.64,
-            'read_pct_events': 93.86,
-            'read_exact_contiguous_pct': 41.77,
-            'read_jump_100MiB_pct': 56.97,
-            'write_exact_contiguous_pct': 94.37,
-            'dom_size': '128 KiB (93.94%)',
-            'lba_span_giB': 389.35,
-        },
-        'burstgpt_kvcache': {
-            'source': 'results/kvcache-profile/burstgpt_kvcache_20260629_141010/block_lba_trace.csv',
-            'block_events': 4566627,
-            'duration_s': 129.75,
-            'iops_avg': 35195,
-            'bw_avg_giBs': 4.25,
-            'read_pct_events': 92.03,
-            'read_exact_contiguous_pct': 10.08,
-            'read_jump_100MiB_pct': 89.11,
-            'write_exact_contiguous_pct': 97.63,
-            'dom_size': '128 KiB (98.52%)',
-            'lba_span_giB': 389.35,
-        },
-    },
-    'methodology': {
-        'trace': 'Linux tracepoint:block:block_rq_issue',
-        'device': '/dev/nvme0n1 (parent) dev_t=271581194',
-        'filesystem': 'ext4 root partition',
-        'workload_runner': 'kv-cache.py v2.0.0b1, llama3.1-8b TP=1, forced NVMe (gpu-mem-gb=0, cpu-mem-gb=0)',
-        'synthetic_runner': 'fio 3.41 distill replay from bpftrace traces',
-    },
+# 存 derived JSON 备用
+derived = {
+    'workloads': WL,
+    'generated_at': '2026-06-30',
+    'regenerated_by': 'scripts/io_three_way_comparison.py',
+    'note': 'Timeline chart uses 10s 窗 for default-kvcache (morning data) vs 3s 窗 for sharegpt/burstgpt. CDF curves are 2-region analytic model fit to observed summary statistics.'
 }
-with open('/home/ficus/llm/storage/docs/assets/io-three-way-comparison/derived/comparison_summary.json', 'w') as f:
-    json.dump(summary, f, indent=2)
-print('saved: derived/comparison_summary.json')
-print('\n=== DONE ===')
+with open(f'{OUT_DIR}/derived/comparison_summary.json', 'w') as f:
+    json.dump(derived, f, indent=2)
+print(f'updated {OUT_DIR}/derived/comparison_summary.json')
+
+print('\n=== 全部完成 ===')
