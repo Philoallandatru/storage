@@ -1,0 +1,35 @@
+# LMCache 学习资源 - 快速访问指南
+
+## 📍 位置
+/home/ficus/llm/storage/lmcache-learning/
+
+## 🚀 快速打开命令
+
+### 查看精美 HTML 版本（强烈推荐！）
+xdg-open /home/ficus/llm/storage/lmcache-learning/html/pcie-p2p-guide.html
+
+### 阅读 README
+cat /home/ficus/llm/storage/lmcache-learning/README.md
+
+### 浏览所有文档
+cd /home/ficus/llm/storage/lmcache-learning
+ls -lh
+
+### 快速参考
+less pcie-p2p-quick-reference.md
+
+## 📚 推荐阅读顺序
+
+1. README.md - 了解整体结构
+2. html/pcie-p2p-guide.html - 可视化学习（浏览器打开）
+3. pcie-p2p-quick-reference.md - 快速参考
+4. learning-records/ - 深入学习
+
+## 💡 核心知识点
+
+PCIe P2P 性能提升：
+- 延迟：10-200 倍
+- 带宽：2-3 倍  
+- CPU 开销：降低 30 倍
+
+AI SSD 必须支持 P2P 才有竞争力！
