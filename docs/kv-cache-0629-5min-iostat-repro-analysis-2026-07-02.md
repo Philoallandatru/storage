@@ -143,9 +143,11 @@ ShareGPT：
 
 ---
 
-## 7. 最重要的问题：为什么设备读这么少
+## 7. 最重要的问题：为什么本轮 iostat 设备读这么少
 
-本轮最关键的发现是这个矛盾：
+本节只针对 **2026-07-02 本轮 5min/180s iostat 复现实验**，不针对 6/29 三路 LBA bpftrace 实验。后者确实能看到大量 block-layer read。
+
+本轮 iostat 复现实验最关键的发现是这个矛盾：
 
 | 口径 | BurstGPT | ShareGPT |
 |---|---:|---:|
@@ -162,6 +164,8 @@ ShareGPT：
 因此，本轮同配置复现不能得出“SSD 承担了 433.9 GiB / 349.7 GiB 物理读”的结论。能得出的严谨结论是：
 
 > `kv-cache.py` 在 storage tier 逻辑上产生了读多写少的 KV 访问模式；但在当前文件系统和缓存条件下，块设备实际承受的是写主导负载。要证明真实 SSD 读压力，必须使用 bpftrace/blktrace/iostat 并控制 page cache。
+
+这不否定 6/29 三路 LBA 图。三路 LBA 图的数据源是 `block_lba_trace.csv`，来自 `tracepoint:block:block_rq_issue`，它证明对应那次 trace 中主机确实向块设备下发了大量 read I/O。
 
 ---
 
@@ -331,6 +335,8 @@ timestamp_ns,dev,sector,bytes,rwbs,comm,pid
 - 读写事件对应的 host LBA 位置
 
 图中的 LBA 仍然是 host block LBA，不是 SSD FTL 内部 NAND 物理地址。
+
+**注意数据口径:** 下面两张图来自 6/29 三路 LBA bpftrace 测试，不是 2026-07-02 的 5min/180s iostat 复现实验。它们说明在那次 bpftrace 测试里，read 确实落到了 Linux block layer；而第 7 节说的“设备读很少”只适用于本轮 `/mnt/ai_ssd0` 上的 iostat 复现实验。
 
 ![ShareGPT LBA time ordered RW](assets/lba-rw-timeline/sharegpt_rw_lba_timeline.png)
 
