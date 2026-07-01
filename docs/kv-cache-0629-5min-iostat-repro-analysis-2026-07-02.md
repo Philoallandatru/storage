@@ -312,3 +312,41 @@ read_iops = self.stats["read_operations"]
 - 三路 LBA 报告：IOPS/BW/LBA = bpftrace block layer per-I/O 事件。
 
 这三者不能混用。
+
+---
+
+## 12. 能否看到时间顺序上的读写分布
+
+可以。只要数据源是 `bpftrace tracepoint:block:block_rq_issue` 生成的 `block_lba_trace.csv`，每一行都有：
+
+```text
+timestamp_ns,dev,sector,bytes,rwbs,comm,pid
+```
+
+因此可以按 `timestamp_ns` 排序，看时间顺序上的：
+
+- 每秒读 / 写 IOPS
+- 每秒读 / 写 GiB/s
+- 每秒读占比
+- 读写事件对应的 host LBA 位置
+
+图中的 LBA 仍然是 host block LBA，不是 SSD FTL 内部 NAND 物理地址。
+
+![ShareGPT LBA time ordered RW](assets/lba-rw-timeline/sharegpt_rw_lba_timeline.png)
+
+![BurstGPT LBA time ordered RW](assets/lba-rw-timeline/burstgpt_rw_lba_timeline.png)
+
+观察：
+
+- BurstGPT 的读 IOPS / 读带宽在大部分时间维持高位，读占比通常在 90% 以上；写事件穿插其中，但写带宽明显低。
+- ShareGPT 更脉冲化，读写都有明显间歇；有些秒级窗口读占比会跌到很低，说明该秒内读写混合受请求到达和 cache 命中影响很大。
+- 最下面 LBA 时间散点可以看出读写不是单纯顺序扫盘，而是在一段 host LBA 空间内反复跳转；这类图比单个平均 IOPS 更能说明真实 block I/O 的时间结构。
+
+生成脚本：
+
+```bash
+uv run python scripts/plot_lba_rw_timeline.py \
+  --trace ShareGPT=results/kvcache-profile/sharegpt_kvcache_20260629_140729/block_lba_trace.csv \
+  --trace BurstGPT=results/kvcache-profile/burstgpt_kvcache_20260629_141010/block_lba_trace.csv \
+  --out-dir docs/assets/lba-rw-timeline
+```
