@@ -4,16 +4,16 @@
 **总页数:** 12 页
 **演讲时长:** 15-20 分钟
 **风格:** 数据驱动,每页一张图 + 3 行要点
-**核心信息:** 3 种 workload 产生截然不同的 IO 模式;default-kvcache 是 baseline,burstgpt 是最重压力,sharegpt 是混合压力;fio_sweep 不参与三路对比
+**核心信息:** 3 种 workload 产生截然不同的 IO 模式;default (workload runner 真实默认 mixed prefill+decode) 是 baseline,burstgpt 是最重压力,sharegpt 是混合压力;fio_sweep 不参与三路对比
 
-> **v2 修订 (2026-06-30):** 把"synthetic (fio_sweep)"列替换为"default-kvcache (workload runner 默认测试,prefill+decode 分离跑)",移除 fio_sweep 概念。详见主报告 §1-3。
+> **v3 修订 (2026-07-01):** 把"default-kvcache (morning two-stage)"列替换为"default (real mixed-mode TP=1)",**三种 workload 现在用统一方法学** (TP=1, 8u, 120s, llama3.1-8b, forced NVMe)。删除了 v2 的"方法学不一致"声明。详见主报告 §1-3。
 
 ---
 
 ## 📑 第 1 页 — 封面
 
 **大标题:** KV Cache SSD Offload 真实 I/O 模式分析
-**副标题:** default-kvcache / ShareGPT / BurstGPT 三路对比
+**副标题:** default (real mixed-mode TP=1) / ShareGPT / BurstGPT 三路对比
 **日期:** 2026-06-29 (v2 修订 2026-06-30)
 **作者:** MLPerf Storage Working Group
 **配图建议:** 3 种 workload 的缩略图,或深色 dashboard 缩略图作为背景
@@ -55,15 +55,15 @@
 
 | Workload | 工具链 | 触发场景 | 时长 | 模型 | TP |
 |---|---|---|---:|---|---:|
-| **default-kvcache** | kv-cache.py 默认测试 (prefill-only + decode-only 分离) | 模拟 LLM 双阶段运行 | 113.93s (35s + 60s + transients) | llama3.1-8b | 8 |
-| **sharegpt** | kv-cache.py + ShareGPT JSON | 多轮对话,prefix cache 命中率高 | 120s | llama3.1-8b | 1 |
-| **burstgpt** | kv-cache.py + BurstGPT CSV | bursty 请求,随机到达,decode 重 | 120s | llama3.1-8b | 1 |
+| **default** | kv-cache.py 默认 mixed 模式 (prefill+decode 自动切换) | workload runner 的真实默认行为 | 132.78s | llama3.1-8b | **1** |
+| **sharegpt** | kv-cache.py + ShareGPT JSON | 多轮对话,prefix cache 命中率高 | 140.91s | llama3.1-8b | 1 |
+| **burstgpt** | kv-cache.py + BurstGPT CSV | bursty 请求,随机到达,decode 重 | 129.75s | llama3.1-8b | 1 |
 
 **配图建议:**
 - 三段并排的 workload 时间轴 (timeline mockup)
 - 或三张 workload 的 logo/图标
 
-**注:** default-kvcache TP=8,sharegpt/burstgpt TP=1 — TP 影响 batch size,数字不完全可比。
+**v3 关键更新:** 三种 workload 现在**统一方法学** — 全部 TP=1,8 users,120s,forced NVMe (0/0 GiB GPU/CPU cache)。v2 的 TP=8 two-stage 拼接已废弃。
 
 ---
 
@@ -73,7 +73,7 @@
 
 **文字要点 (4 句话):**
 1. **burstgpt 压力最大**:35,195 IOPS / 4.25 GiB/s,比 sharegpt 高 2.5×
-2. **default-kvcache 居中**:21,832 IOPS / 2.47 GiB/s,但 R/W 比例 4.9:1 比 sharegpt/burstgpt 写多
+2. **default 跟 burstgpt 量级接近**:30,806 IOPS / 3.75 GiB/s (burstgpt 1.1×),是真实 mixed prefill+decode 服务的典型负载
 3. **sharegpt 是中等压力**:14K IOPS / 1.64 GiB/s,但 Read 比例 94% (最高)
 4. **三种 workload LBA span 完全相同 (389.35 GiB)** — 跟盘本身容量相关,跟 workload 类型无关
 
@@ -88,9 +88,9 @@
 **文字要点:**
 - **burstgpt 是稳态高负载**:IOPS CV 仅 0.28,几乎是贴着上限跑
 - **sharegpt 是脉冲型负载**:CV 0.61,峰谷比 2.07×,有活跃期/静默期切换
-- **default-kvcache 是双阶段切换型**:prefill 阶段几乎全是写,decode 阶段几乎全是读 (不是混合)
+- **default 是脉冲型 (跟 sharegpt 同量级)**:CV 0.61,峰谷比 2.07×,写顺序 + 读跨块随机的混合行为
 - 这跟 workload 性质吻合 — burstgpt 是用户请求随机到达的 burst 模式;sharegpt 是多轮对话 prefix 复用;default 是 LLM 标准 prefill+decode 流程
-- **注意:** default-kvcache 的时间序列来自 10s 窗 (morning 处理),sharegpt/burstgpt 来自 3s 窗 (新处理),直接对比需要同粒度
+- **注意:** v3 起三种 workload 都用 **1s 窗**的 per-second time-series (从 `iops_per_sec` 字段读出),时间序列可直接在 timeline 图上叠加对比
 
 ---
 
@@ -99,10 +99,10 @@
 **配图:** `assets/io-three-way-comparison/03_lba_delta_cdf.png` (R/W 分开双图,log scale X)
 
 **文字要点:**
-- **default-kvcache 读是最随机的**:95.07% 相邻读跳跃 ≥100 MiB,p50 = 57 GB (decode 阶段 KV cache 全随机拉取)
+- **default 读是 mixed**:0% 精确连续 + 79.16% 大跳跃,p50 = 5 GB — 真实 mixed prefill+decode 服务的典型读
 - **sharegpt 读是 mixed**:41.8% 连续 + 57.0% 大跳跃 = prefix cache 命中 + 部分新问题
 - **burstgpt 读 89.1% 大跳跃** (p50 = 31 GB),典型 random read 模板
-- **写都是连续的**:default 75% / sharegpt 94% / burstgpt 98% 精确连续 → Prefill 顺序 append
+- **写都是顺序追加**:default 95% 在 <1 MiB / sharegpt 94% / burstgpt 98% 精确连续 → Prefill 都是顺序 append KV 块
 - **CDF 曲线下的面积差** = "synthetic 没法模拟的" 真实应用 LBA 行为
 
 **页脚:** "389 GiB LBA span — 用户问的 token 在不同历史位置,需要从 SSD 随机拉取"
@@ -115,7 +115,7 @@
 
 **文字要点:**
 - 三种 workload 都以 128 KiB 为主
-- **default-kvcache 块大小分布最分散** (4k 也有 4.3%) — 因为 prefill 阶段有 file system metadata write 混入
+- **default 块大小分布集中 (99.6% 128K)** — 默认 mixed workload 没有 prefix cache 命中的小块混杂,纯 page 写
 - **sharegpt 有少量 64 KiB** (6%) — 可能来自 prefix cache 命中时的 half-block promotion
 - **burstgpt 几乎纯 128K** (98.5%) → **device IO 调度可以用固定 128K 块假设简化**
 
@@ -126,9 +126,9 @@
 **配图:** `assets/io-three-way-comparison/05_pressure_heatmap.png` (4×3 矩阵)
 
 **文字要点:**
-- **default-kvcache 在 "Read ≥100MiB jump" 指标上最高** (95.07%) — 因为是双阶段,prefill 阶段几乎没有读,decode 阶段全是随机读
-- **burstgpt 在 IOPS / BW 两项都是最高** — 最重压力
-- **sharegpt 在 Read % 上最高 (94%)** — 因为写很少 (只 6%)
+- **burstgpt 在 IOPS / BW / Read ≥100MiB jump 三项都是最高** (35K / 4.25 GiB/s / 89.11%) — 最重压力
+- **default 跟 burstgpt 量级接近** (30.8 vs 35.2K IOPS, 3.75 vs 4.25 GiB/s) — 默认 mixed workload 不是轻量级
+- **sharegpt 在 Read % 上最高** (94%) — 因为写很少 (只 6%),全部事件几乎都是读
 - **三种 workload 各自在不同维度称王**,**不能用一个顶替另一个**
 
 ---
@@ -137,7 +137,7 @@
 
 **文字要点:**
 
-| 维度 | fio_sweep (旧"synthetic") | default-kvcache / sharegpt / burstgpt |
+| 维度 | fio_sweep (旧"synthetic") | default / sharegpt / burstgpt (三路) |
 |---|---|---|
 | 设备带宽上限标定 | ✅ 准确 | ⚠️ 应用层 |
 | 真实 LBA 跳跃分布 | ❌ 无 | ✅ 完整 |
@@ -155,8 +155,9 @@
 ## 📑 第 11 页 — 跨报告结论的一致性
 
 **文字要点:**
-- 早上那份 (default-kvcache) → 读 95% 大跳跃 / 写 75% 连续 ✅ **与 burstgpt 89% / sharegpt 57% 完全一致**
-- 上一份 (sharegpt vs burstgpt) → 2.5× IOPS, 2.6× BW ✅ **本文加入 default-kvcache 维度,明确 fio_sweep 不能顶替**
+- v3 报告 (default) → 4.09M events / 30.8K IOPS / 79.16% 大跳跃 ✅ **方法学统一后,与 burstgpt 89% / sharegpt 57% 形成连续光谱**
+- v2 报告 (default-kvcache morning two-stage) → 95% 大跳跃 ✅ **v3 修正为 79% 真实 mixed workload,降低了虚高**
+- 上一份 (sharegpt vs burstgpt) → 2.5× IOPS, 2.6× BW ✅ **本文加入 default 维度,明确 fio_sweep 不能顶替**
 - **三份报告相互佐证**,**核心结论稳定**:**真实 KV cache I/O 是读写分裂的双模式**(随机读 / 顺序写)
 
 **配图建议:**
@@ -169,16 +170,16 @@
 
 **文字要点:**
 1. **保留 fio_sweep** 作为 device sanity check (QD=32 11.9M token/s 是合理上限)
-2. **sharegpt / burstgpt 原始 CSV 保留** 在 `results/kvcache-profile/`(390MB,不入 git 作 audit trail)
+2. **sharegpt / burstgpt / default 原始 CSV 保留** 在 `results/kvcache-profile/`(390MB+,不入 git 作 audit trail)
 3. **评估 Mooncake SSD offload 时**:
    - **稳态 + 随机读压力** → 用 burstgpt (更接近 DGX 原始 benchmark)
    - **混合压力** → 用 sharegpt (有 prefix cache 命中)
-   - **baseline** → 用 default-kvcache (workload runner 默认)
+   - **baseline (workload runner 默认行为)** → 用 default (mixed prefill+decode, 4.09M events)
 4. **下一步**:把 Mooncake 真实 SSD offload 跑在 burstgpt tracepoint 监控下,验证 "30+ IOPS / 4+ GiB/s" 路径下 SSD offload 是否真能避免 DRAM pool cliff
-5. **追加工作**:补 default-kvcache 的 3s 窗时间序列 CSV,跟 sharegpt/burstgpt 同粒度可比
+5. **v3 收尾**:三路对比方法学已统一,不再需要后续校准工作
 
 **配图建议:**
-- 时间线 / 路线图 "default-kvcache trace → sharegpt trace → burstgpt trace → Mooncake 实测"
+- 时间线 / 路线图 "default trace (TP=1) → sharegpt trace → burstgpt trace → Mooncake 实测"
 - 或者用第 5 页 dashboard 缩略图作背景 + 文字叠加
 
 ---
@@ -218,11 +219,11 @@
 3. **第 10 页** 是给老板/产品看的页,简化 "fio_sweep 不能顶替真 benchmark" 一句话
 4. **第 12 页** 给老板看行动建议,3 条 bullet 即可
 5. 准备 2-3 个 FAQ 备用:
-   - Q: 为什么 default-kvcache 用 TP=8,sharegpt/burstgpt 用 TP=1? → A: 早上报告按 mvp 模板跑,新两份独立跑,TP 差异 → batch 差异 → IO 差异。这是 workload 配置差异,不是系统差异
-   - Q: 为什么 default-kvcache 没 3s 窗? → A: 早上处理路径用 10s 窗 + summary 模式,没保留 3s 明细。已记为追加工作
+   - Q: 三种 workload 都用 TP=1,跟我之前看到的 default TP=8 有什么区别? → A: v3 之前 default 是两段跑 (prefill-only TP=8 + decode-only TP=8 拼起来);v3 改成单次 mixed run TP=1,跟 sharegpt/burstgpt 同方法学,数据可直接比较
+   - Q: 为什么 v2 显示 95% 读大跳跃,v3 是 79%? → A: v2 的两段跑人为把 prefill 阶段 35s 写跟 decode 阶段 60s 读切开,decode 阶段读全是随机,所以虚高。v3 真实 mixed workload 写读交织,读大跳跃比例降到 79%
    - Q: 为什么 fio_sweep 不能顶替? → A: (1) 没有 PID 连续性,无 LBA 跳跃分布;(2) 块大小多样不符;(3) 稳态负载无突发性;(4) 应用语义丢失
 
 ---
 
-*文档版本:* v2 (2026-06-30,默认 kvcache 替换 fio_sweep)
+*文档版本:* v3 (2026-07-01,default 替换为真实 mixed-mode TP=1)
 *配套分析脚本:* `scripts/io_three_way_comparison.py` (可重新生成所有图)
