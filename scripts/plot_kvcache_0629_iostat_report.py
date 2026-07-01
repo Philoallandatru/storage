@@ -44,6 +44,14 @@ def case_label(name: str) -> str:
     return name
 
 
+def read_duration(run_root: Path) -> str:
+    for meta in run_root.glob("*/metadata.env"):
+        for line in meta.read_text(errors="replace").splitlines():
+            if line.startswith("duration="):
+                return line.split("=", 1)[1].strip()
+    return "300"
+
+
 def draw(run_root: Path, out_dir: Path, device: str) -> None:
     setup_style()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -51,6 +59,7 @@ def draw(run_root: Path, out_dir: Path, device: str) -> None:
     summaries = [summarize_case(p, device) for p in case_dirs]
     summaries.sort(key=lambda x: 0 if "burst" in x["case"].lower() else 1)
     labels = [case_label(s["case"]) for s in summaries]
+    duration = read_duration(run_root)
     colors = ["#38bdf8", "#f97316"]
     pink = "#fb7185"
     green = "#34d399"
@@ -107,9 +116,9 @@ def draw(run_root: Path, out_dir: Path, device: str) -> None:
     ax.set_title("Queue Depth 随时间变化")
     ax.legend(frameon=False, loc="upper left")
 
-    fig.suptitle("KV Cache SSD Offload 5min 复现：读写口径与队列深度", fontsize=24, color="#f8fafc", y=0.98)
-    fig.text(0.015, 0.02, "配置：llama3.1-8b, users=16, duration=300s, GPU/CPU=0GiB, TP=8, generation=none, autoscaling, iostat -dx -m 1", color="#94a3b8")
-    fig.savefig(out_dir / "0629_5min_iostat_dashboard.png", dpi=180, bbox_inches="tight")
+    fig.suptitle(f"KV Cache SSD Offload {duration}s 复现：读写口径与队列深度", fontsize=24, color="#f8fafc", y=0.98)
+    fig.text(0.015, 0.02, f"配置：llama3.1-8b, users=16, duration={duration}s, GPU/CPU=0GiB, TP=8, generation=none, autoscaling, iostat -dx -m 1", color="#94a3b8")
+    fig.savefig(out_dir / f"0629_{duration}s_iostat_dashboard.png", dpi=180, bbox_inches="tight")
     plt.close(fig)
 
     # Token/s and device bandwidth timeline.
@@ -135,7 +144,7 @@ def draw(run_root: Path, out_dir: Path, device: str) -> None:
     for ax in axes2:
         ax.legend(frameon=False, ncols=2)
     fig2.suptitle("KV Cache Offload 运行时曲线", fontsize=22, color="#f8fafc")
-    fig2.savefig(out_dir / "0629_5min_runtime_timeline.png", dpi=180, bbox_inches="tight")
+    fig2.savefig(out_dir / f"0629_{duration}s_runtime_timeline.png", dpi=180, bbox_inches="tight")
     plt.close(fig2)
 
 

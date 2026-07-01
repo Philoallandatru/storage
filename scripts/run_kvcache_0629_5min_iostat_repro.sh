@@ -9,6 +9,7 @@ CACHE_ROOT="${RUN_ROOT}/cache"
 CONFIG="${CONFIG:-${ROOT_DIR}/kv_cache_benchmark/config.yaml}"
 SHAREGPT_PATH="${SHAREGPT_PATH:-${ROOT_DIR}/datasets/sharegpt/ShareGPT_V3_unfiltered_cleaned_split_no_imsorry.json}"
 BURSTGPT_PATH="${BURSTGPT_PATH:-${ROOT_DIR}/datasets/BurstGPT/data/BurstGPT_1.csv}"
+DURATION="${DURATION:-300}"
 
 mkdir -p "${RUN_ROOT}" "${CACHE_ROOT}" "${ARCHIVE_ROOT}"
 
@@ -27,7 +28,7 @@ device=${DEVICE}
 cache_dir=${cache_dir}
 model=llama3.1-8b
 num_users=16
-duration=300
+duration=${DURATION}
 gpu_mem_gb=0
 cpu_mem_gb=0
 num_gpus=8
@@ -50,7 +51,7 @@ EOF
       --config "${CONFIG}" \
       --model llama3.1-8b \
       --num-users 16 \
-      --duration 300 \
+      --duration "${DURATION}" \
       --gpu-mem-gb 0 \
       --cpu-mem-gb 0 \
       --num-gpus 8 \

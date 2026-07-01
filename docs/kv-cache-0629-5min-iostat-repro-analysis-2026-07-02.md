@@ -40,6 +40,8 @@
 | cache dir | `/mnt/ai_ssd0/kvcache_0629_5min_iostat_20260702_062609/cache/<case>` |
 | 目标块设备 | `/dev/nvme2n1p2` mounted at `/mnt/ai_ssd0`, fstype=`fuseblk`; `iostat` 采 `nvme2n1` |
 
+**和 6/29 文档是否一模一样:** benchmark 参数与 6/29 报告复现命令一致；不同点是实际 cache 盘。本轮使用 `/mnt/ai_ssd0`，而 6/29 报告里的主盘/副盘路径由 `/mnt/<disk>/cache` 指向当时的测试盘。因此只能说“同 workload 配置复现”，不能说“同一块盘、同一文件系统环境复现”。
+
 复现脚本：
 
 ```bash
@@ -225,3 +227,88 @@ ShareGPT：
 1. **Workload 形态成立：** BurstGPT 与 ShareGPT 的 KV 层读写比例和 6/29 报告一致。
 2. **设备证据不足：** iostat 显示实际设备读很少，说明 page cache 或文件系统层吸收了逻辑读。
 3. **AI SSD 测试方向：** 必须建立 cold-cache / direct-I/O / bpftrace 三件套，才能把 token/s 曲线和 SSD 产品能力绑定。
+
+---
+
+## 11. 180s 快速复验
+
+用户要求只跑 3min / 180s，因此在同一套参数下把 `--duration` 从 300 改为 180 复验。除 duration 外，仍保持：
+
+```bash
+--model llama3.1-8b
+--num-users 16
+--gpu-mem-gb 0 --cpu-mem-gb 0
+--num-gpus 8 --tensor-parallel 8
+--max-concurrent-allocs 2
+--generation-mode none
+--enable-autoscaling
+--seed 42
+```
+
+180s 汇报图：
+
+![180s iostat dashboard](assets/kvcache-0629-iostat-repro-3min/0629_180s_iostat_dashboard.png)
+
+![180s runtime timeline](assets/kvcache-0629-iostat-repro-3min/0629_180s_runtime_timeline.png)
+
+180s 结果：
+
+| 指标 | BurstGPT 180s | ShareGPT 180s |
+|---|---:|---:|
+| Avg token/s | 2950.1 | 363.0 |
+| 请求数 | 2204 | 355 |
+| 总 token | 531,021 | 65,341 |
+| Cache hit rate | 97.8% | 63.1% |
+| KV 逻辑读 | 239.2 GiB | 241.9 GiB |
+| KV 逻辑写 | 20.4 GiB | 32.1 GiB |
+| KV 读占比 | 92.2% | 88.3% |
+| KV read:write | 11.75:1 | 7.54:1 |
+| KV 读带宽 | 1.33 GiB/s | 1.34 GiB/s |
+| KV 写带宽 | 0.11 GiB/s | 0.18 GiB/s |
+| iostat 设备读 | 0.007 GiB | 0.87 GiB |
+| iostat 设备写 | 20.43 GiB | 31.11 GiB |
+| iostat 设备读占比 | 0.04% | 2.73% |
+| QD mean | 25.6 | 77.4 |
+| QD p95 | 54.9 | 211.5 |
+| QD max | 78.8 | 332.5 |
+
+180s 原始汇总：
+
+- `docs/assets/kvcache-0629-iostat-repro-3min/summary.csv`
+- `docs/assets/kvcache-0629-iostat-repro-3min/summary.json`
+- 本地完整结果：`results/kvcache-profile/0629_3min_iostat_repro_20260702_064524/`
+
+### 上次报告里的读带宽和 IOPS 是怎么算的
+
+从代码看，6/29 报告中的 `Storage Read BW` 来自 benchmark 内部 cache stats：
+
+```python
+tier_storage_read_bandwidth_gbps =
+    tier_storage_kv_bytes_read / 1024**3 / duration
+```
+
+也就是说，它是 **KV storage tier 逻辑读字节 / benchmark duration**，不是 `iostat` 或 block layer 读带宽。
+
+`Storage KV Read Operations/sec` 的打印逻辑是：
+
+```python
+cache_stats["read_iops"] / self.duration
+```
+
+但 `cache_stats["read_iops"]` 这个字段名有误导性，代码里它实际等于：
+
+```python
+read_iops = self.stats["read_operations"]
+```
+
+也就是总 read operation 数，不是 per-second IOPS。真正每秒值是在打印时再除以 duration。
+
+三路 LBA 报告里的 `Block IOPS` 是另一种口径：`bpftrace tracepoint:block:block_rq_issue` 的块事件数 / 实测秒数。这个才是更接近设备层 IOPS 的口径。
+
+因此：
+
+- 6/29 5min 报告：读带宽 = benchmark KV 逻辑带宽。
+- 本轮 iostat：读/写 = 块设备实际看到的吞吐。
+- 三路 LBA 报告：IOPS/BW/LBA = bpftrace block layer per-I/O 事件。
+
+这三者不能混用。
