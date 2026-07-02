@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lesson 4: io_uring 深度解析 - Mooncake KV Cache</title>
+    <link rel="stylesheet" href="../assets/lesson-styles.css">
+</head>
+<body>
+    <div class="lesson-container">
+        <div class="lesson-meta">
+            <strong>课程 0004</strong> | 预计时间：20 分钟 | 难度：⭐⭐⭐⭐☆
+        </div>
+
+        <h1>课程 4：io_uring 深度解析</h1>
+
+        <div class="callout callout-info">
+            <div class="callout-title">🎯 学习目标</div>
+            在本课结束时，你将能够：
+            <ul style="margin-top: 10px;">
+                <li>理解 io_uring 的环形缓冲区架构 (SQ/CQ)</li>
+                <li>解释线程本地环如何避免锁竞争</li>
+                <li>掌握固定缓冲区优化的原理</li>
+                <li>识别 O_DIRECT 的对齐要求和性能影响</li>
+                <li>对比 io_uring 与传统 POSIX I/O 的性能差异</li>
+            </ul>
+        </div>
+
+        <h2>为什么需要 io_uring？</h2>
+
+        <div class="callout callout-warning">
+            <div class="callout-title">⚠️ 传统 POSIX I/O 的问题</div>
+            <strong>pread/pwrite 的性能瓶颈：</strong><br>
+            • 每次 I/O 都需要系统调用 (context switch)<br>
+            • 阻塞式操作，无法充分利用 NVMe 并行性<br>
+            • 批量操作需要多次系统调用<br>
+            • 内核需要验证用户态缓冲区（页面固定）<br><br>
+            <strong>结果：</strong>高 QPS 场景下，CPU 时间浪费在系统调用开销上
+        </div>
+
+        <h2>io_uring 核心架构</h2>
+
+        <h3>环形缓冲区设计</h3>
+
+        <pre><code style="background: #f8f9fa; color: #2c3e50;">
+┌────────────────────────────────────────────────────────────┐
+│  用户空间 (User Space)                                      │
+│                                                             │
+│  ┌─────────────────────┐        ┌─────────────────────┐   │
+│  │  Submission Queue   │        │  Completion Queue   │   │
+│  │       (SQ)          │        │       (CQ)          │   │
+│  │                     │        │                     │   │
+│  │  [SQE] [SQE] [SQE]  │        │  [CQE] [CQE] [CQE]  │   │
+│  │   ↑     ↑     ↑     │        │   ↑     ↑     ↑     │   │
+│  │   │     │     │     │        │   │     │     │     │   │
+│  └───┼─────┼─────┼─────┘        └───┼─────┼─────┼─────┘   │
+│      │     │     │                  │     │     │         │
+│      │     │     │ 提交             │     │     │ 完成    │
+└──────┼─────┼─────┼──────────────────┼─────┼─────┼─────────┘
+       │     │     │                  │     │     │
+       │     │     │                  │     │     │
+═══════╪═════╪═════╪══════════════════╪═════╪═════╪═════════
+       │     │     │                  │     │     │
+┌──────┼─────┼─────┼──────────────────┼─────┼─────┼─────────┐
+│  内核空间 (Kernel Space)                                    │
+│      │     │     │                  │     │     │         │
+│      └─────┴─────┴──────────┐       │     │     │         │
+│                             ↓       │     │     │         │
+│                    ┌─────────────────┐    │     │         │
+│                    │  Block Layer    │    │     │         │
+│                    └─────────────────┘    │     │         │
+│                             ↓             │     │         │
+│                    ┌─────────────────┐    │     │         │
+│                    │  NVMe Driver    │────┘     │         │
+│                    └─────────────────┘──────────┘         │
+│                             ↓                              │
+└─────────────────────────────┼──────────────────────────────┘
+                              ↓
+                     ┌─────────────────┐
+                     │   NVMe SSD      │
+                     └─────────────────┘
+</code></pre>
+
+        <h3>核心概念</h3>
+
+        <table>
+            <tr>
+                <th>组件</th>
+                <th>全称</th>
+                <th>作用</th>
+            </tr>
+            <tr>
+                <td><strong>SQ</strong></td>
+                <td>Submission Queue</td>
+                <td>用户提交 I/O 请求的环形队列</td>
+            </tr>
+            <tr>
+                <td><strong>CQ</strong></td>
+                <td>Completion Queue</td>
+                <td>内核返回完成事件的环形队列</td>
+            </tr>
+            <tr>
+                <td><strong>SQE</strong></td>
+                <td>Submission Queue Entry</td>
+                <td>单个 I/O 请求描述符</td>
+            </tr>
+            <tr>
+                <td><strong>CQE</strong></td>
+                <td>Completion Queue Entry</td>
+                <td>单个完成事件</td>
+            </tr>
+        </table>
+
+        <h3>关键优势</h3>
+
+        <ul>
+            <li><strong>共享内存</strong>：SQ/CQ 通过 mmap 共享，避免数据拷贝</li>
+            <li><strong>批量提交</strong>：一次 io_uring_submit() 可以提交多个 SQE</li>
+            <li><strong>批量收割</strong>：一次 io_uring_peek_batch_cqe() 收割多个 CQE</li>
+            <li><strong>真正异步</strong>：提交后立即返回，无需等待完成</li>
+        </ul>
+
+        <h2>Mooncake 的 io_uring 实现</h2>
+
+        <h3>线程本地环 (Thread-Local Ring)</h3>
+
+        <pre><code>// uring_file.cpp
+thread_local std::unique_ptr<io_uring> g_thread_ring = nullptr;
+
+static io_uring* GetThreadLocalRing() {
+    if (!g_thread_ring) {
+        g_thread_ring = std::make_unique<io_uring>();
+        
+        // 初始化环，深度 = 128
+        int ret = io_uring_queue_init(128, g_thread_ring.get(), 0);
+        if (ret < 0) {
+            LOG(ERROR) << "io_uring_queue_init failed";
+            g_thread_ring.reset();
+            return nullptr;
+        }
+    }
+    return g_thread_ring.get();
+}</code></pre>
+
+        <div class="callout callout-success">
+            <div class="callout-title">✅ 关键设计：每线程一个环</div>
+            <strong>为什么不用全局环？</strong><br><br>
+            <strong>全局环的问题：</strong><br>
+            • 多线程竞争一个 SQ，需要加锁<br>
+            • 锁竞争开销 > 1ms（高并发时）<br>
+            • 限制了并行度<br><br>
+            <strong>线程本地环的优势：</strong><br>
+            • 零锁竞争（每线程独立）<br>
+            • 充分并行（多个环同时工作）<br>
+            • 简化代码（无需同步）
+        </div>
+
+        <h3>批量提交流程</h3>
+
+        <pre><code>// uring_file.cpp:595-638
+int UringFile::vector_write(const iovec* iovs, int iovcnt, off_t offset) {
+    auto* ring = GetThreadLocalRing();
+    if (!ring) {
+        // Fallback to POSIX
+        return posix_vector_write(iovs, iovcnt, offset);
+    }
+    
+    // 分批处理，每批最多 QUEUE_DEPTH (32) 个请求
+    for (int i = 0; i < iovcnt; i += QUEUE_DEPTH) {
+        int batch = std::min(QUEUE_DEPTH, iovcnt - i);
+        
+        // (1) 准备 SQE
+        for (int j = 0; j < batch; j++) {
+            struct io_uring_sqe* sqe = io_uring_get_sqe(ring);
+            if (!sqe) {
+                LOG(ERROR) << "SQ is full";
+                return -1;
+            }
+            
+            // 准备写请求
+            io_uring_prep_writev(sqe, fd_, &iovs[i+j], 1, offset);
+            offset += iovs[i+j].iov_len;
+        }
+        
+        // (2) 批量提交
+        int submitted = io_uring_submit_and_wait(ring, batch);
+        if (submitted < 0) {
+            LOG(ERROR) << "io_uring_submit failed";
+            return submitted;
+        }
+        
+        // (3) 收割完成事件
+        for (int j = 0; j < batch; j++) {
+            struct io_uring_cqe* cqe;
+            int ret = io_uring_wait_cqe(ring, &cqe);
+            if (ret < 0) {
+                LOG(ERROR) << "io_uring_wait_cqe failed";
+                return ret;
+            }
+            
+            // 检查错误
+            if (cqe->res < 0) {
+                LOG(ERROR) << "I/O error: " << strerror(-cqe->res);
+            }
+            
+            io_uring_cqe_seen(ring, cqe);
+        }
+    }
+    
+    return 0;
+}</code></pre>
+
+        <h3>关键参数</h3>
+
+        <table>
+            <tr>
+                <th>参数</th>
+                <th>值</th>
+                <th>说明</th>
+            </tr>
+            <tr>
+                <td><strong>Queue Depth</strong></td>
+                <td>128</td>
+                <td>SQ/CQ 的大小</td>
+            </tr>
+            <tr>
+                <td><strong>Batch Size</strong></td>
+                <td>32</td>
+                <td>单次提交的最大请求数</td>
+            </tr>
+            <tr>
+                <td><strong>Alignment</strong></td>
+                <td>4096 (4KB)</td>
+                <td>O_DIRECT 对齐要求</td>
+            </tr>
+        </table>
+
+        <h2>固定缓冲区优化</h2>
+
+        <h3>问题：页面固定开销</h3>
+
+        <p>每次 I/O 操作，内核需要：</p>
+        <ol>
+            <li>验证用户态缓冲区地址合法</li>
+            <li>固定（pin）物理页面，防止换出</li>
+            <li>建立 DMA 映射</li>
+            <li>I/O 完成后解除固定（unpin）</li>
+        </ol>
+
+        <p><strong>开销</strong>：每次 I/O ~100-200 ns</p>
+
+        <h3>解决方案：预注册缓冲区</h3>
+
+        <pre><code>// file_storage.cpp:204-218
+#ifdef USE_URING
+if (config.use_uring) {
+    auto aligned_allocator =
+        std::static_pointer_cast<AlignedClientBufferAllocator>(
+            client_buffer_allocator_);
+    
+    if (aligned_allocator) {
+        void* base_ptr = aligned_allocator->get_base_pointer();
+        size_t size = aligned_allocator->get_total_size();
+        
+        // 预注册到 io_uring
+        if (UringFile::register_global_buffer(base_ptr, size)) {
+            LOG(INFO) << "Successfully registered buffer: "
+                      << "base=" << base_ptr << ", size=" << size;
+        }
+    }
+}
+#endif</code></pre>
+
+        <h3>实现细节</h3>
+
+        <pre><code>// uring_file.cpp
+static std::atomic<void*> g_buf_base{nullptr};
+static std::atomic<size_t> g_buf_size{0};
+
+bool UringFile::register_global_buffer(void* base, size_t size) {
+    // (1) 禁用 Transparent Huge Pages
+    // 原因：THP 会导致 FOLL_LONGTERM 页面固定失败
+    madvise(base, size, MADV_NOHUGEPAGE);
+    
+    // (2) 保存全局变量（每线程环会独立注册）
+    g_buf_base.store(base, std::memory_order_release);
+    g_buf_size.store(size, std::memory_order_release);
+    
+    return true;
+}
+
+static void ensure_buf_registered(io_uring* ring) {
+    void* base = g_buf_base.load(std::memory_order_acquire);
+    size_t size = g_buf_size.load(std::memory_order_acquire);
+    
+    if (!base) return;
+    
+    // 注册到当前线程的环
+    struct iovec iov = {base, size};
+    int ret = io_uring_register_buffers(ring, &iov, 1);
+    if (ret < 0) {
+        LOG(WARNING) << "io_uring_register_buffers failed";
+    }
+}</code></pre>
+
+        <div class="callout callout-tip">
+            <div class="callout-title">💡 MADV_NOHUGEPAGE 的作用</div>
+            <strong>问题</strong>：Linux THP (Transparent Huge Pages) 默认启用<br>
+            • 使用 2MB 大页面<br>
+            • io_uring 的 FOLL_LONGTERM 固定要求 4KB 小页面<br>
+            • 冲突导致注册失败<br><br>
+            <strong>解决</strong>：<code>madvise(MADV_NOHUGEPAGE)</code> 强制使用 4KB 页面
+        </div>
+
+        <h3>使用固定缓冲区</h3>
+
+        <pre><code>// 检查地址是否在注册区域内
+bool is_in_registered_buffer(void* ptr) {
+    void* base = g_buf_base.load();
+    size_t size = g_buf_size.load();
+    return ptr >= base && ptr < (char*)base + size;
+}
+
+// 准备读请求
+if (is_in_registered_buffer(buffer)) {
+    // 使用固定缓冲区 API（更快）
+    io_uring_prep_read_fixed(sqe, fd, buffer, len, offset, buf_index);
+} else {
+    // 普通 API
+    io_uring_prep_read(sqe, fd, buffer, len, offset);
+}</code></pre>
+
+        <h2>O_DIRECT 与对齐</h2>
+
+        <h3>为什么使用 O_DIRECT？</h3>
+
+        <div class="callout callout-warning">
+            <div class="callout-title">⚠️ 页缓存的问题</div>
+            <strong>Linux 页缓存（Page Cache）虽然快，但有缺点：</strong><br>
+            • 延迟不可预测（缓存命中 vs miss）<br>
+            • 占用宝贵的 DRAM<br>
+            • 重复缓存（应用层 + OS 层）<br>
+            • 污染其他应用的缓存<br><br>
+            <strong>对于 Mooncake</strong>：<br>
+            • 已有多层缓存（GPU/Host/Remote DRAM）<br>
+            • OS 页缓存是冗余的<br>
+            • 需要确定性延迟
+        </div>
+
+        <h3>对齐要求</h3>
+
+        <table>
+            <tr>
+                <th>项目</th>
+                <th>要求</th>
+                <th>说明</th>
+            </tr>
+            <tr>
+                <td><strong>缓冲区地址</strong></td>
+                <td>4KB 对齐</td>
+                <td>必须是 4096 的倍数</td>
+            </tr>
+            <tr>
+                <td><strong>I/O 大小</strong></td>
+                <td>4KB 对齐</td>
+                <td>读写字节数是 4096 的倍数</td>
+            </tr>
+            <tr>
+                <td><strong>文件偏移</strong></td>
+                <td>4KB 对齐</td>
+                <td>offset 是 4096 的倍数</td>
+            </tr>
+        </table>
+
+        <h3>对齐辅助函数</h3>
+
+        <pre><code>// storage_backend.cpp
+static constexpr size_t kDirectIOAlignment = 4096;
+
+static inline size_t align_up(size_t size, size_t alignment) {
+    return (size + alignment - 1) & ~(alignment - 1);
+}
+
+static inline int64_t align_down(int64_t offset, int64_t alignment) {
+    return offset & ~(alignment - 1);
+}
+
+// 读取时的对齐处理
+int64_t aligned_offset = align_down(offset, kDirectIOAlignment);
+size_t aligned_size = align_up(offset - aligned_offset + size, 
+                               kDirectIOAlignment);
+void* aligned_buffer = allocate_aligned(aligned_size);
+
+// 实际读取
+file->read_aligned(aligned_buffer, aligned_size, aligned_offset);
+
+// 拷贝到用户缓冲区（只拷贝需要的部分）
+memcpy(user_buffer, aligned_buffer + (offset - aligned_offset), size);</code></pre>
+
+        <h2>性能对比</h2>
+
+        <h3>io_uring vs POSIX</h3>
+
+        <table>
+            <tr>
+                <th>场景</th>
+                <th>POSIX (pwritev)</th>
+                <th>io_uring</th>
+                <th>提升</th>
+            </tr>
+            <tr>
+                <td>单个 4KB 写入</td>
+                <td>~15 μs</td>
+                <td>~12 μs</td>
+                <td>1.25×</td>
+            </tr>
+            <tr>
+                <td>批量 32 个写入</td>
+                <td>~450 μs</td>
+                <td>~150 μs</td>
+                <td>3×</td>
+            </tr>
+            <tr>
+                <td>高并发 (8 线程)</td>
+                <td>锁竞争严重</td>
+                <td>无锁竞争</td>
+                <td>5-10×</td>
+            </tr>
+        </table>
+
+        <h3>固定缓冲区的收益</h3>
+
+        <table>
+            <tr>
+                <th>操作</th>
+                <th>普通缓冲区</th>
+                <th>固定缓冲区</th>
+                <th>节省</th>
+            </tr>
+            <tr>
+                <td>每次 I/O 页面固定</td>
+                <td>~200 ns</td>
+                <td>0 ns</td>
+                <td>200 ns</td>
+            </tr>
+            <tr>
+                <td>100 万次 I/O</td>
+                <td>0.2 秒</td>
+                <td>0 秒</td>
+                <td>0.2 秒</td>
+            </tr>
+        </table>
+
+        <h2>对 AI SSD 的启示</h2>
+
+        <h3>1. 支持高队列深度</h3>
+
+        <p><strong>观察</strong>：io_uring 批量提交 32 个请求</p>
+
+        <p><strong>AI SSD 应该</strong>：</p>
+        <ul>
+            <li>内部并行处理能力：至少 32 并发</li>
+            <li>避免 head-of-line blocking</li>
+            <li>QD=32 时，单个请求延迟不应显著增加</li>
+        </ul>
+
+        <h3>2. O_DIRECT 性能优化</h3>
+
+        <p><strong>观察</strong>：所有生产 I/O 使用 O_DIRECT</p>
+
+        <p><strong>AI SSD 应该</strong>：</p>
+        <ul>
+            <li>DMA 引擎高效处理 4KB 对齐的传输</li>
+            <li>无额外的固件层缓冲开销</li>
+            <li>确保 O_DIRECT 路径是最快路径</li>
+        </ul>
+
+        <h3>3. 批量操作优化</h3>
+
+        <p><strong>观察</strong>：批量提交带来 3× 性能提升</p>
+
+        <p><strong>AI SSD 应该</strong>：</p>
+        <ul>
+            <li>识别批量操作并优化调度</li>
+            <li>内部合并相邻请求</li>
+            <li>批量完成通知</li>
+        </ul>
+
+        <h2>小结</h2>
+
+        <p>今天你深入学习了 io_uring：</p>
+
+        <ul>
+            <li>✅ <strong>环形缓冲区架构</strong>：SQ/CQ 共享内存，避免拷贝</li>
+            <li>✅ <strong>线程本地环</strong>：消除锁竞争，充分并行</li>
+            <li>✅ <strong>固定缓冲区</strong>：预注册，节省页面固定开销</li>
+            <li>✅ <strong>O_DIRECT</strong>：绕过页缓存，4KB 对齐</li>
+            <li>✅ <strong>批量优化</strong>：32 个请求批量提交，3× 性能提升</li>
+        </ul>
+
+        <div class="callout callout-info">
+            <div class="callout-title">📚 推荐阅读</div>
+            <ul style="margin-top: 10px;">
+                <li><a href="https://kernel.dk/io_uring.pdf" target="_blank">io_uring 白皮书</a> - Jens Axboe</li>
+                <li><code>mooncake-store/src/uring_file.cpp</code> - 完整实现</li>
+                <li><a href="https://man7.org/linux/man-pages/man7/io_uring.7.html" target="_blank">io_uring(7)</a> - Linux man page</li>
+            </ul>
+        </div>
+
+        <div class="lesson-nav">
+            <a href="0003-ssd-promotion-read-path.html" class="nav-link">← 上一课：SSD Promotion</a>
+            <a href="0005-workload-analysis.html" class="nav-link">下一课：工作负载分析 →</a>
+        </div>
+    </div>
+</body>
+</html>

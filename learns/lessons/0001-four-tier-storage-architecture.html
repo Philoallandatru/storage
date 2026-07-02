@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lesson 1: 四层存储架构 - Mooncake KV Cache</title>
+    <link rel="stylesheet" href="../assets/lesson-styles.css">
+</head>
+<body>
+    <div class="lesson-container">
+        <div class="lesson-meta">
+            <strong>课程 0001</strong> | 预计时间：15 分钟 | 难度：⭐⭐☆☆☆
+        </div>
+
+        <h1>课程 1：理解 Mooncake 的四层存储架构</h1>
+
+        <div class="callout callout-info">
+            <div class="callout-title">🎯 学习目标</div>
+            在本课结束时，你将能够：
+            <ul style="margin-top: 10px;">
+                <li>说出四层存储的名称、容量和延迟特征</li>
+                <li>解释为什么需要多层存储架构</li>
+                <li>识别每一层在 AI SSD 设计中的启示</li>
+            </ul>
+        </div>
+
+        <h2>为什么需要多层存储？</h2>
+
+        <p>在 LLM 推理中，<strong>KV Cache</strong> 是性能的关键。它存储了 transformer 每一层的 attention keys 和 values，避免重复计算。但问题是：</p>
+
+        <div class="callout callout-warning">
+            <div class="callout-title">⚠️ 核心挑战</div>
+            <strong>对于长上下文 LLM，KV Cache 非常大</strong><br><br>
+            以 LLaMA3-70B 处理 128k tokens 为例：<br>
+            • 单个请求的 KV Cache ≈ 40 GB<br>
+            • 单张 H100 GPU (80GB VRAM) 只能容纳 2 个这样的请求<br>
+            • 但生产环境需要同时服务数百个请求！
+        </div>
+
+        <p>解决方案？<strong>分层存储</strong>——将热数据放在快速但昂贵的存储，将冷数据放在慢速但便宜的存储。</p>
+
+        <h2>四层架构详解</h2>
+
+        <h3>Tier 1: GPU VRAM (最热层)</h3>
+        <table>
+            <tr>
+                <th>属性</th>
+                <th>值</th>
+                <th>AI SSD 启示</th>
+            </tr>
+            <tr>
+                <td><strong>延迟</strong></td>
+                <td>&lt;1 μs</td>
+                <td>GPU 计算是纳秒级，存储不能成为瓶颈</td>
+            </tr>
+            <tr>
+                <td><strong>容量</strong></td>
+                <td>40-80 GB/GPU</td>
+                <td>有限容量驱动了 offload 需求</td>
+            </tr>
+            <tr>
+                <td><strong>管理者</strong></td>
+                <td>推理引擎 (vLLM/SGLang)</td>
+                <td>应用层直接管理</td>
+            </tr>
+            <tr>
+                <td><strong>用途</strong></td>
+                <td>活跃 decode 的 KV Cache</td>
+                <td>最热的工作集</td>
+            </tr>
+        </table>
+
+        <div class="try-it">
+            <div class="try-it-title">💡 思考题</div>
+            如果一个 GPU 正在 decode 10 个请求，每个请求的 KV Cache 是 8GB，这 10 个请求能全部放在 GPU VRAM 吗？（假设 GPU 有 80GB VRAM）
+            <details style="margin-top: 10px;">
+                <summary>点击查看答案</summary>
+                <p style="margin-top: 10px;"><strong>不能。</strong> 10 × 8GB = 80GB，看似刚好，但 GPU 还需要存储：<br>
+                • 模型权重 (~140GB for 70B model，通过 tensor parallel 分片）<br>
+                • 中间激活值<br>
+                • 操作缓冲区<br>
+                实际上，VRAM 的绝大部分被模型权重占用，留给 KV Cache 的空间有限。</p>
+            </details>
+        </div>
+
+        <h3>Tier 2: Host DRAM (本地缓存)</h3>
+        <table>
+            <tr>
+                <th>属性</th>
+                <th>值</th>
+                <th>AI SSD 启示</th>
+            </tr>
+            <tr>
+                <td><strong>延迟</strong></td>
+                <td>~10 μs</td>
+                <td>PCIe 传输（cudaMemcpy）是主要开销</td>
+            </tr>
+            <tr>
+                <td><strong>容量</strong></td>
+                <td>100-500 GB/节点</td>
+                <td>比 GPU 大 5-10×，但仍不够</td>
+            </tr>
+            <tr>
+                <td><strong>管理者</strong></td>
+                <td>HiCache (SGLang)</td>
+                <td>LRU/分层缓存策略</td>
+            </tr>
+            <tr>
+                <td><strong>用途</strong></td>
+                <td>最近使用的 KV Cache</td>
+                <td>GPU 驱逐的第一站</td>
+            </tr>
+        </table>
+
+        <div class="callout callout-tip">
+            <div class="callout-title">✅ 关键观察</div>
+            从 GPU 到 Host DRAM 的传输使用 <code>cudaMemcpy</code>，这是一次<strong>显式拷贝</strong>（不是零拷贝）。<br>
+            带宽：PCIe Gen4 x16 = ~30 GB/s<br>
+            对于 AI SSD 设计：如果能实现 GPU ↔ SSD 直接传输（GPUDirect Storage），可以跳过这一层。
+        </div>
+
+        <h3>Tier 3: Remote DRAM Pool (集群缓存)</h3>
+        <table>
+            <tr>
+                <th>属性</th>
+                <th>值</th>
+                <th>AI SSD 启示</th>
+            </tr>
+            <tr>
+                <td><strong>延迟</strong></td>
+                <td>50-100 μs</td>
+                <td>RDMA 网络延迟，比 SSD 快 10-50×</td>
+            </tr>
+            <tr>
+                <td><strong>容量</strong></td>
+                <td>TB 级（弹性）</td>
+                <td>跨节点聚合容量</td>
+            </tr>
+            <tr>
+                <td><strong>管理者</strong></td>
+                <td>Mooncake Store</td>
+                <td>分布式元数据管理</td>
+            </tr>
+            <tr>
+                <td><strong>用途</strong></td>
+                <td>集群级 KV Cache 共享</td>
+                <td>多实例复用缓存</td>
+            </tr>
+        </table>
+
+        <p><strong>为什么有这一层？</strong> 因为不同 GPU 节点可能处理相似的请求（例如相同的 system prompt）。通过 RDMA 共享 KV Cache，避免每个节点都重新计算。</p>
+
+        <h3>Tier 4: Local NVMe SSD (冷存储) ⭐ 重点</h3>
+        <table>
+            <tr>
+                <th>属性</th>
+                <th>值</th>
+                <th>AI SSD 启示</th>
+            </tr>
+            <tr>
+                <td><strong>延迟</strong></td>
+                <td>1-5 ms</td>
+                <td>比 DRAM 慢 1000×，但比重新计算快 1000×</td>
+            </tr>
+            <tr>
+                <td><strong>容量</strong></td>
+                <td>多 TB/节点</td>
+                <td>成本效益的大容量存储</td>
+            </tr>
+            <tr>
+                <td><strong>管理者</strong></td>
+                <td>FileStorage</td>
+                <td>异步 offload/promotion</td>
+            </tr>
+            <tr>
+                <td><strong>用途</strong></td>
+                <td>冷 KV Cache 持久化</td>
+                <td>最后的防线</td>
+            </tr>
+        </table>
+
+        <div class="callout callout-danger">
+            <div class="callout-title">🎯 AI SSD 的核心价值</div>
+            <strong>SSD 不是用来"快"的，而是用来"防止慢"的</strong><br><br>
+            考虑两个场景：<br>
+            <strong>场景 A (无 SSD offload)</strong>: Cache miss → 重新运行 prefill → 10-30 秒<br>
+            <strong>场景 B (有 SSD offload)</strong>: Cache miss → 从 SSD 加载 → 1-5 毫秒<br><br>
+            SSD 的 1-5ms 延迟虽然比 DRAM 慢 1000×，但比重新计算快 <strong>10,000×</strong>！<br>
+            这就是为什么 SSD offload 能让吞吐量提升 2.4× 的原因。
+        </div>
+
+        <h2>层间数据流动</h2>
+
+        <p>数据不是随机跳跃的，而是遵循一个清晰的层级关系：</p>
+
+        <pre><code>驱逐路径 (Eviction):
+GPU VRAM → Host DRAM → Remote DRAM → SSD
+         (cudaMemcpy)   (RDMA)      (io_uring)
+
+提升路径 (Promotion):
+SSD → Remote DRAM → Host DRAM → GPU VRAM
+   (io_uring)     (RDMA)    (cudaMemcpy)</code></pre>
+
+        <div class="interactive-section">
+            <h3>🧪 练习：识别传输方法</h3>
+            <p>请填写每个层间传输使用的技术：</p>
+            <ol>
+                <li>GPU → Host: ___________</li>
+                <li>Host → Remote DRAM: ___________</li>
+                <li>Remote DRAM → SSD: ___________</li>
+            </ol>
+            <details>
+                <summary>查看答案</summary>
+                <ol style="margin-top: 10px;">
+                    <li>cudaMemcpy (显式拷贝，~10 μs，30 GB/s)</li>
+                    <li>RDMA (零拷贝，50-100 μs，87 GB/s @ 4×200Gbps)</li>
+                    <li>io_uring + O_DIRECT (零拷贝，1-5 ms，27 GB/s)</li>
+                </ol>
+            </details>
+        </div>
+
+        <h2>真实性能数据</h2>
+
+        <p>以下是 FAST'25 论文中的实测数据（多轮对话基准测试）：</p>
+
+        <table>
+            <tr>
+                <th>指标</th>
+                <th>无 SSD Offload</th>
+                <th>有 SSD Offload</th>
+                <th>改善</th>
+            </tr>
+            <tr>
+                <td>Cache 命中率 (Round 7+)</td>
+                <td>36%</td>
+                <td>84%</td>
+                <td><strong style="color: #27ae60;">+133%</strong></td>
+            </tr>
+            <tr>
+                <td>TTFT (首 token 时间)</td>
+                <td>16.0 秒</td>
+                <td>9.4 秒</td>
+                <td><strong style="color: #27ae60;">-41%</strong></td>
+            </tr>
+            <tr>
+                <td>吞吐量</td>
+                <td>1.0× (基准)</td>
+                <td>2.4×</td>
+                <td><strong style="color: #27ae60;">+140%</strong></td>
+            </tr>
+        </table>
+
+        <p><strong>为什么提升这么大？</strong> 因为在 Round 7+ 时，DRAM 已经耗尽。没有 SSD 的系统开始频繁驱逐 KV Cache，导致大量重新计算。有 SSD 的系统则能从 SSD 快速恢复，避免昂贵的重新计算。</p>
+
+        <h2>对 AI SSD 设计的启示</h2>
+
+        <div class="try-it">
+            <div class="try-it-title">🔍 设计考虑</div>
+            基于四层架构，AI SSD 应该考虑：
+            <ol>
+                <li><strong>顺序读优化</strong>：数据以大块（256MB buckets）批量读写</li>
+                <li><strong>低延迟优先</strong>：1ms 和 5ms 的差异很重要（不像传统存储的 10ms vs 15ms）</li>
+                <li><strong>高带宽</strong>：需要接近 30 GB/s 才能匹配 PCIe 带宽</li>
+                <li><strong>O_DIRECT 友好</strong>：绕过页缓存是必须的，确保 4KB 对齐性能良好</li>
+                <li><strong>异步 I/O</strong>：offload 是后台操作，不能阻塞前台读取</li>
+            </ol>
+        </div>
+
+        <h2>小结</h2>
+
+        <p>今天你学习了 Mooncake 的四层存储架构：</p>
+        <ul>
+            <li>✅ <strong>Tier 1 (GPU VRAM)</strong>: &lt;1μs, 40-80GB — 活跃计算</li>
+            <li>✅ <strong>Tier 2 (Host DRAM)</strong>: ~10μs, 100-500GB — 本地缓存</li>
+            <li>✅ <strong>Tier 3 (Remote DRAM)</strong>: 50-100μs, TB级 — 集群共享</li>
+            <li>✅ <strong>Tier 4 (SSD)</strong>: 1-5ms, 多TB — 冷存储</li>
+        </ul>
+
+        <p>关键洞察：<strong>SSD 的价值不是"快"，而是"比重新计算快 10,000×"</strong>。</p>
+
+        <div class="callout callout-info">
+            <div class="callout-title">📚 推荐阅读</div>
+            <ul style="margin-top: 10px;">
+                <li><a href="https://www.usenix.org/system/files/fast25-qin.pdf" target="_blank">FAST'25 论文 Section 3</a> - 架构设计详解</li>
+                <li><a href="../reference/glossary.html">术语表</a> - KV Cache, Prefill, Decode 等术语</li>
+                <li>代码参考：<code>docs/source/design/mooncake-store.md</code></li>
+            </ul>
+        </div>
+
+        <div class="callout callout-tip">
+            <div class="callout-title">❓ 有疑问？</div>
+            如果有任何不清楚的地方，随时向你的 AI 教师提问！我可以帮你：
+            <ul style="margin-top: 10px;">
+                <li>深入解释任何概念</li>
+                <li>提供更多代码示例</li>
+                <li>分析特定的性能数据</li>
+                <li>讨论 AI SSD 设计权衡</li>
+            </ul>
+        </div>
+
+        <div class="lesson-nav">
+            <a href="#" class="nav-link" style="visibility: hidden;">← 上一课</a>
+            <a href="0002-ssd-offload-write-path.html" class="nav-link">下一课：SSD Offload 写路径 →</a>
+        </div>
+    </div>
+</body>
+</html>

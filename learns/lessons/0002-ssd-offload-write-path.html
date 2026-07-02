@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lesson 2: SSD Offload 写路径 - Mooncake KV Cache</title>
+    <link rel="stylesheet" href="../assets/lesson-styles.css">
+</head>
+<body>
+    <div class="lesson-container">
+        <div class="lesson-meta">
+            <strong>课程 0002</strong> | 预计时间：20 分钟 | 难度：⭐⭐⭐☆☆
+        </div>
+
+        <h1>课程 2：SSD Offload 写路径深度解析</h1>
+
+        <div class="callout callout-info">
+            <div class="callout-title">🎯 学习目标</div>
+            在本课结束时，你将能够：
+            <ul style="margin-top: 10px;">
+                <li>描述从内存到 SSD 的完整数据流程（5 个步骤）</li>
+                <li>解释为什么 Mooncake 不使用 GPUDirect Storage</li>
+                <li>理解 GPU 指针检测和暂存机制</li>
+                <li>识别 offload 路径中的拷贝边界和零拷贝边界</li>
+                <li>为 AI SSD 提出至少 2 个写路径优化建议</li>
+            </ul>
+        </div>
+
+        <h2>核心问题</h2>
+
+        <p>当 Remote DRAM Pool 的内存不足时，Master Service 需要将一些冷 KV Cache 对象驱逐到 SSD。这个过程被称为 <strong>Offload</strong>。</p>
+
+        <div class="callout callout-warning">
+            <div class="callout-title">⚠️ 设计挑战</div>
+            <strong>数据可能在三个不同的位置：</strong><br>
+            1. GPU VRAM（如果刚从 decode worker 驱逐）<br>
+            2. Host DRAM（本地缓存）<br>
+            3. Remote DRAM（已经在远程节点）<br><br>
+            FileStorage 必须能够处理所有三种情况，并高效地写入 SSD。
+        </div>
+
+        <h2>完整的 Offload 流程</h2>
+
+        <h3>步骤 1：心跳触发</h3>
+
+        <p>Offload 不是由应用程序直接触发的，而是由 <strong>Heartbeat Thread</strong> 在后台定期执行。</p>
+
+        <pre><code>// file_storage.cpp:582-684
+tl::expected&lt;void, ErrorCode&gt; FileStorage::Heartbeat() {
+    // 向 Master 询问：有哪些对象需要 offload？
+    std::vector&lt;OffloadTaskItem&gt; offloading_objects;
+    auto heartbeat_result = client_-&gt;OffloadObjectHeartbeat(
+        enable_offloading_, offloading_objects);
+    
+    // Master 返回需要 offload 的对象列表
+    if (heartbeat_result && !offloading_objects.empty()) {
+        auto offload_result = OffloadObjects(offloading_objects);
+    }
+    
+    return tl::expected&lt;void, ErrorCode&gt;();
+}</code></pre>
+
+        <div class="try-it">
+            <div class="try-it-title">🤔 思考题</div>
+            为什么使用心跳（定期轮询）而不是事件驱动（Master 主动推送）？
+            <details style="margin-top: 10px;">
+                <summary>点击查看答案</summary>
+                <p style="margin-top: 10px;"><strong>三个原因：</strong><br>
+                1. <strong>解耦</strong>：Master 不需要维护到每个 Client 的反向连接<br>
+                2. <strong>批处理</strong>：可以在一个心跳周期内累积多个 offload 任务，批量处理<br>
+                3. <strong>容错</strong>：如果 Client 暂时不可达，Master 只需等待下次心跳<br><br>
+                默认心跳间隔：通过 <code>MOONCAKE_OFFLOAD_HEARTBEAT_INTERVAL_SECONDS</code> 配置</p>
+            </details>
+        </div>
+
+        <h3>步骤 2：查询数据位置</h3>
+
+        <p>FileStorage 收到 offload 任务后，首先需要知道数据当前在哪里：</p>
+
+        <pre><code>// file_storage.cpp:492-518
+// 从本地或远程 segment 批量查询数据
+auto query_result = client_-&gt;BatchQuery(keys, slices);
+
+// slices 现在包含了每个 key 对应的内存地址
+// 但这些地址可能是 GPU 指针！</code></pre>
+
+        <h3>步骤 3：GPU 指针检测与暂存 ⭐ 关键</h3>
+
+        <p>这是 Mooncake SSD offload 最有趣的部分：<strong>自动检测并处理 GPU 指针</strong>。</p>
+
+        <pre><code>// file_storage.cpp:500-518
+for (auto&amp; [obj_key, slices] : batch_object) {
+    std::vector&lt;Slice&gt; host_slices;
+    std::vector&lt;PinnedBuffer&gt; staging_bufs;
+    
+    for (const auto&amp; slice : slices) {
+        int device_id = -1;
+        
+        // 🔍 检测：这是 GPU 指针吗？
+        if (IsDevicePointer(slice.ptr, &amp;device_id)) {
+            SetDevice(device_id);
+            
+            // 📦 分配暂存缓冲区（Host pinned memory）
+            auto buf = pinned_buffer_pool_-&gt;Acquire(slice.size);
+            
+            // 📋 显式拷贝：GPU → Host
+            if (!CopyDeviceToHost(buf.data, slice.ptr, slice.size)) {
+                LOG(ERROR) &lt;&lt; "D2H staging failed for key: " &lt;&lt; obj_key;
+                obj_success = false;
+                break;
+            }
+            
+            host_slices.emplace_back(Slice{buf.data, slice.size});
+            staging_bufs.push_back(buf);  // 保持 RAII 生命周期
+        } else {
+            // ✅ 已经在 Host，直接使用
+            host_slices.push_back(slice);
+        }
+    }
+}</code></pre>
+
+        <div class="callout callout-danger">
+            <div class="callout-title">🚨 关键发现：不使用 GPUDirect Storage</div>
+            <strong>Mooncake 在生产环境中不使用 GDS 进行本地 SSD offload</strong><br><br>
+            <strong>证据：</strong><br>
+            • 使用 <code>cudaMemcpy</code>，不是 <code>cuFile*</code> API<br>
+            • 所有数据必须先到达 Host DRAM<br>
+            • GDS 代码仅存在于 NVMe-oF transport（远程 NVMe，不是本地 SSD）<br><br>
+            <strong>为什么？</strong><br>
+            1. <strong>批处理语义</strong>：FileStorage 处理来自不同 tenants/segments 的对象批次，GDS 优化的是大块连续传输<br>
+            2. <strong>数据源通常已在 DRAM</strong>：大多数情况下，数据已经从远程节点驱逐到本地 DRAM，GPU→SSD 直接路径是罕见情况<br>
+            3. <strong>复杂度 vs 收益</strong>：GDS 需要 CUDA context 管理、设备指针跨进程追踪、cuFile 驱动开销
+        </div>
+
+        <h3>GPU 指针检测实现</h3>
+
+        <pre><code>// gpu_staging_utils.h:17-45
+inline bool IsDevicePointer(const void* ptr, int* out_device_id) {
+#if defined(USE_CUDA)
+    cudaPointerAttributes attr{};
+    
+    // CUDA 运行时查询指针属性
+    if (cudaPointerGetAttributes(&amp;attr, ptr) == cudaSuccess &amp;&amp;
+        attr.type == cudaMemoryTypeDevice) {
+        
+        if (out_device_id) *out_device_id = attr.device;
+        return true;  // ✅ 这是 GPU 指针
+    }
+#endif
+    return false;  // ❌ 这是 Host 指针
+}
+
+inline bool CopyDeviceToHost(void* host_dst, const void* device_src, 
+                             size_t size) {
+#if defined(USE_CUDA)
+    // 同步拷贝：GPU → Host
+    return cudaMemcpy(host_dst, device_src, size, 
+                     cudaMemcpyDeviceToHost) == cudaSuccess;
+#else
+    return false;
+#endif
+}</code></pre>
+
+        <div class="try-it">
+            <div class="try-it-title">💡 代码阅读</div>
+            打开这些源文件，查看完整实现：<br>
+            • <code>mooncake-store/include/gpu_staging_utils.h:17-63</code><br>
+            • <code>mooncake-store/src/file_storage.cpp:492-518</code><br><br>
+            注意 <code>PinnedBufferPool</code> 的使用——为什么要用 pinned memory 而不是普通 malloc？
+        </div>
+
+        <h3>步骤 4：写入 SSD（批量 I/O）</h3>
+
+        <p>所有数据都在 Host DRAM 后，使用 <strong>vectored I/O</strong> 批量写入 SSD：</p>
+
+        <pre><code>// storage_backend.cpp (BucketStorageBackend::BatchOffload)
+// 1. 将对象聚合到 bucket
+std::vector&lt;iovec&gt; iovs;
+for (const auto&amp; [key, slices] : batch_object) {
+    for (const auto&amp; slice : slices) {
+        iovs.push_back({slice.ptr, slice.size});
+    }
+}
+
+// 2. 构建 bucket 元数据
+BucketMetadata meta;
+meta.keys = keys;
+meta.offsets = compute_offsets(iovs);
+meta.total_size = sum(iovs.sizes);
+
+// 3. 单次系统调用写入所有数据
+file-&gt;vector_write(iovs.data(), iovs.size(), 0);
+
+// 4. 写入元数据文件
+write_metadata(bucket_id + ".meta", meta);</code></pre>
+
+        <h3>io_uring vs POSIX I/O</h3>
+
+        <table>
+            <tr>
+                <th>特性</th>
+                <th>io_uring (现代)</th>
+                <th>pwritev (传统)</th>
+            </tr>
+            <tr>
+                <td><strong>系统调用</strong></td>
+                <td>批量提交，单次 <code>io_uring_submit()</code></td>
+                <td>每次 I/O 一次 <code>pwritev()</code></td>
+            </tr>
+            <tr>
+                <td><strong>异步</strong></td>
+                <td>真正异步，提交后立即返回</td>
+                <td>阻塞直到完成</td>
+            </tr>
+            <tr>
+                <td><strong>批处理</strong></td>
+                <td>最多 32 个请求/批次</td>
+                <td>需要多次调用</td>
+            </tr>
+            <tr>
+                <td><strong>CPU 开销</strong></td>
+                <td>低（共享内存环）</td>
+                <td>高（每次 context switch）</td>
+            </tr>
+        </table>
+
+        <pre><code>// uring_file.cpp:595-638
+int UringFile::vector_write(const iovec* iovs, int iovcnt, off_t offset) {
+    auto* ring = GetThreadLocalRing();  // 每线程一个环，无锁
+    
+    // 准备 SQE (Submission Queue Entry)
+    for (int i = 0; i &lt; iovcnt; i += QUEUE_DEPTH) {
+        int batch = std::min(QUEUE_DEPTH, iovcnt - i);
+        
+        for (int j = 0; j &lt; batch; j++) {
+            auto* sqe = io_uring_get_sqe(ring);
+            io_uring_prep_writev(sqe, fd_, &amp;iovs[i+j], 1, offset);
+            offset += iovs[i+j].iov_len;
+        }
+        
+        // 批量提交
+        io_uring_submit_and_wait(ring, batch);
+        
+        // 收集完成事件
+        for (int j = 0; j &lt; batch; j++) {
+            io_uring_cqe* cqe;
+            io_uring_wait_cqe(ring, &amp;cqe);
+            // ... 检查错误 ...
+            io_uring_cqe_seen(ring, cqe);
+        }
+    }
+}</code></pre>
+
+        <h3>步骤 5：通知 Master</h3>
+
+        <p>写入成功后，FileStorage 通知 Master 更新元数据：</p>
+
+        <pre><code>// file_storage.cpp:540-550
+auto notify_result = client_-&gt;NotifyOffloadSuccess(keys, metadatas);
+
+// Master 收到通知后：
+// 1. 在对象的 replica_list 中添加 LOCAL_DISK 副本
+// 2. 记录 Real Client 的 RPC 地址（用于后续读取）
+// 3. 更新 segment 的磁盘使用统计</code></pre>
+
+        <h2>数据流与拷贝边界</h2>
+
+        <div class="interactive-section">
+            <h3>🎨 可视化：Offload 数据流</h3>
+            <pre><code style="background: #f8f9fa; color: #2c3e50; padding: 20px;">
+┌─────────────────────────────────────────────────────────────┐
+│  场景 A：数据在 GPU VRAM                                     │
+└─────────────────────────────────────────────────────────────┘
+
+GPU VRAM (40GB)                    ⚠️ 显式拷贝
+     │                                ~10 μs
+     │ cudaMemcpy(D→H)               ~30 GB/s
+     ↓
+Host Pinned Memory (staging)       ✅ 零拷贝
+     │                                DMA
+     │ io_uring + O_DIRECT           1-5 ms
+     ↓                                ~27 GB/s
+NVMe SSD (Multi-TB)
+
+
+┌─────────────────────────────────────────────────────────────┐
+│  场景 B：数据在 Host DRAM（最常见）                          │
+└─────────────────────────────────────────────────────────────┘
+
+Host DRAM (500GB)                  ✅ 零拷贝
+     │                                直接 DMA
+     │ io_uring + O_DIRECT           1-5 ms
+     ↓                                ~27 GB/s
+NVMe SSD (Multi-TB)
+
+
+┌─────────────────────────────────────────────────────────────┐
+│  场景 C：数据在 Remote DRAM                                  │
+└─────────────────────────────────────────────────────────────┘
+
+Remote DRAM                        ✅ 零拷贝
+     │                                RDMA
+     │ Transfer Engine               50-100 μs
+     ↓                                ~87 GB/s
+Host DRAM (local)                  ✅ 零拷贝
+     │                                DMA
+     │ io_uring + O_DIRECT           1-5 ms
+     ↓
+NVMe SSD (Multi-TB)
+</code></pre>
+        </div>
+
+        <h3>拷贝边界总结</h3>
+
+        <table>
+            <tr>
+                <th>传输路径</th>
+                <th>零拷贝？</th>
+                <th>延迟</th>
+                <th>带宽</th>
+            </tr>
+            <tr>
+                <td><strong>GPU → Host</strong></td>
+                <td>❌ 否（cudaMemcpy）</td>
+                <td>~10 μs</td>
+                <td>~30 GB/s</td>
+            </tr>
+            <tr>
+                <td><strong>Host → SSD</strong></td>
+                <td>✅ 是（O_DIRECT DMA）</td>
+                <td>1-5 ms</td>
+                <td>~27 GB/s</td>
+            </tr>
+            <tr>
+                <td><strong>Remote → Host</strong></td>
+                <td>✅ 是（RDMA）</td>
+                <td>50-100 μs</td>
+                <td>~87 GB/s</td>
+            </tr>
+        </table>
+
+        <h2>BucketStorageBackend 设计</h2>
+
+        <h3>为什么使用 Bucket？</h3>
+
+        <div class="callout callout-tip">
+            <div class="callout-title">✅ 聚合小对象</div>
+            <strong>问题</strong>：如果每个 KV Cache 对象一个文件，100 万个对象 = 100 万个文件<br>
+            • 文件系统元数据开销巨大<br>
+            • 打开/关闭文件的系统调用开销<br>
+            • 碎片化严重<br><br>
+            <strong>解决方案</strong>：将多个对象打包到一个 bucket 文件<br>
+            • 默认 256MB 或 500 个对象/bucket<br>
+            • 两个文件：<code>.bucket</code>（数据）+ <code>.meta</code>（索引）<br>
+            • 大大减少文件数量和元数据开销
+        </div>
+
+        <h3>Bucket 文件格式</h3>
+
+        <pre><code>bucket_12345678.bucket:
+┌─────────────────────────────────────────────────┐
+│  Object 1 (key="sess_001", size=8MB)            │
+├─────────────────────────────────────────────────┤
+│  Object 2 (key="sess_002", size=12MB)           │
+├─────────────────────────────────────────────────┤
+│  ...                                            │
+├─────────────────────────────────────────────────┤
+│  Object N (key="sess_500", size=6MB)            │
+└─────────────────────────────────────────────────┘
+Total: 256MB
+
+bucket_12345678.meta:
+{
+  "bucket_id": 12345678,
+  "keys": ["sess_001", "sess_002", ..., "sess_500"],
+  "offsets": [0, 8388608, 20971520, ...],
+  "sizes": [8388608, 12582912, ..., 6291456],
+  "total_size": 268435456
+}</code></pre>
+
+        <h3>Bucket 大小的权衡</h3>
+
+        <table>
+            <tr>
+                <th>Bucket 大小</th>
+                <th>优点</th>
+                <th>缺点</th>
+            </tr>
+            <tr>
+                <td><strong>64MB（小）</strong></td>
+                <td>• 读取延迟低<br>• 驱逐粒度小</td>
+                <td>• 文件数量多<br>• 元数据开销大</td>
+            </tr>
+            <tr>
+                <td><strong>256MB（默认）</strong></td>
+                <td>• 平衡点<br>• 文件数量合理</td>
+                <td>• 读取可能拉取无关数据</td>
+            </tr>
+            <tr>
+                <td><strong>1GB（大）</strong></td>
+                <td>• 最少文件数<br>• 顺序 I/O 友好</td>
+                <td>• 读取延迟高<br>• 驱逐不灵活</td>
+            </tr>
+        </table>
+
+        <div class="try-it">
+            <div class="try-it-title">🔧 配置参数</div>
+            Bucket 大小可通过环境变量配置：<br>
+            <code>MOONCAKE_OFFLOAD_BUCKET_SIZE_LIMIT=268435456</code> (256MB)<br>
+            <code>MOONCAKE_OFFLOAD_BUCKET_KEYS_LIMIT=500</code> (最多 500 个对象)<br><br>
+            对于 AI SSD：256MB 是否是最优值？考虑 NVMe 的预读特性和队列深度。
+        </div>
+
+        <h2>对 AI SSD 设计的启示</h2>
+
+        <div class="callout callout-info">
+            <div class="callout-title">💡 写路径优化方向</div>
+        </div>
+
+        <h3>1. 大块顺序写入优化</h3>
+
+        <p><strong>观察</strong>：Bucket 聚合机制导致写入模式是大块顺序的（256MB）</p>
+
+        <p><strong>AI SSD 应该</strong>：</p>
+        <ul>
+            <li>针对 64MB-512MB 范围的大块写入优化写缓冲策略</li>
+            <li>识别顺序写入流，提前分配连续物理块</li>
+            <li>减少写放大（Write Amplification），因为数据已经是大块的</li>
+        </ul>
+
+        <h3>2. O_DIRECT 性能</h3>
+
+        <p><strong>观察</strong>：所有生产 I/O 使用 O_DIRECT 绕过页缓存</p>
+
+        <p><strong>AI SSD 应该</strong>：</p>
+        <ul>
+            <li>确保 O_DIRECT 路径没有额外的固件层缓冲开销</li>
+            <li>支持 4KB 对齐的高效 DMA</li>
+            <li>在固件层实现预读（而不是依赖 OS 页缓存）</li>
+        </ul>
+
+        <h3>3. 异步写入吞吐</h3>
+
+        <p><strong>观察</strong>：Offload 是后台异步操作，不阻塞前台读取</p>
+
+        <p><strong>AI SSD 应该</strong>：</p>
+        <ul>
+            <li>提供大容量的写缓冲（DRAM + SLC cache）</li>
+            <li>QoS 机制：确保后台写入不影响前台读延迟</li>
+            <li>支持高并发：io_uring 可能同时提交 32 个写请求</li>
+        </ul>
+
+        <h3>4. 未来：GPU → SSD 直接路径</h3>
+
+        <p><strong>观察</strong>：当前使用 cudaMemcpy 暂存，有拷贝开销</p>
+
+        <p><strong>AI SSD 可以考虑</strong>：</p>
+        <ul>
+            <li>支持 GPUDirect Storage（需要 NVIDIA 认证）</li>
+            <li>提供 cuFile-compatible 驱动</li>
+            <li>但要评估：GPU-resident 数据比例是否高到值得这个复杂度</li>
+        </ul>
+
+        <h2>练习：代码追踪</h2>
+
+        <div class="interactive-section">
+            <h3>🧪 动手练习</h3>
+            <ol>
+                <li>打开 <code>mooncake-store/src/file_storage.cpp:492-518</code></li>
+                <li>找到 <code>IsDevicePointer()</code> 的调用</li>
+                <li>追踪 <code>pinned_buffer_pool_-&gt;Acquire()</code> 的实现</li>
+                <li>思考：为什么需要 pinned memory 而不是普通 malloc？</li>
+            </ol>
+            <details>
+                <summary>查看提示</summary>
+                <p style="margin-top: 10px;">
+                <strong>Pinned memory 的作用：</strong><br>
+                • <code>cudaHostAlloc()</code> 分配的页锁定内存<br>
+                • 不会被 OS 换出到磁盘<br>
+                • GPU 可以通过 DMA 直接访问（无需 staging）<br>
+                • cudaMemcpy 性能更高（~30 GB/s vs ~10 GB/s）<br><br>
+                查看：<code>mooncake-store/include/pinned_buffer_pool.h</code>
+                </p>
+            </details>
+        </div>
+
+        <h2>小结</h2>
+
+        <p>今天你深入学习了 SSD Offload 写路径：</p>
+
+        <ul>
+            <li>✅ <strong>5 步流程</strong>：心跳触发 → 查询位置 → GPU 暂存 → SSD 写入 → 通知 Master</li>
+            <li>✅ <strong>关键发现</strong>：不使用 GPUDirect Storage，通过 cudaMemcpy 暂存</li>
+            <li>✅ <strong>零拷贝边界</strong>：Host → SSD 是零拷贝，GPU → Host 不是</li>
+            <li>✅ <strong>Bucket 聚合</strong>：256MB 批量写入，减少文件数量</li>
+            <li>✅ <strong>io_uring 优化</strong>：批量异步 I/O，每线程一个环</li>
+        </ul>
+
+        <p><strong>对 AI SSD 的核心启示</strong>：优化大块顺序写、O_DIRECT 性能、异步写缓冲</p>
+
+        <div class="callout callout-info">
+            <div class="callout-title">📚 推荐阅读</div>
+            <ul style="margin-top: 10px;">
+                <li><a href="https://www.usenix.org/system/files/fast25-qin.pdf" target="_blank">FAST'25 论文 Section 5.2</a> - SSD Offload 实现</li>
+                <li><code>docs/source/design/ssd-offload.md</code> - 完整设计文档</li>
+                <li><code>docs/research/kv-cache-data-path-2026-06-29.md</code> - 数据通路分析</li>
+                <li><a href="https://kernel.dk/io_uring.pdf" target="_blank">io_uring 白皮书</a> - Jens Axboe</li>
+            </ul>
+        </div>
+
+        <div class="callout callout-tip">
+            <div class="callout-title">❓ 讨论问题</div>
+            向你的 AI 教师提问：
+            <ul style="margin-top: 10px;">
+                <li>"为什么选择 256MB 作为 bucket 大小？有基准测试数据吗？"</li>
+                <li>"io_uring 的线程本地环比全局环性能提升多少？"</li>
+                <li>"如果数据大部分时间在 GPU，GDS 是否值得？"</li>
+                <li>"创建下一课：SSD Promotion 读路径"</li>
+            </ul>
+        </div>
+
+        <div class="lesson-nav">
+            <a href="0001-four-tier-storage-architecture.html" class="nav-link">← 上一课：四层架构</a>
+            <a href="0003-ssd-promotion-read-path.html" class="nav-link">下一课：SSD Promotion 读路径 →</a>
+        </div>
+    </div>
+</body>
+</html>

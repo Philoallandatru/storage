@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lesson 3: SSD Promotion 读路径 - Mooncake KV Cache</title>
+    <link rel="stylesheet" href="../assets/lesson-styles.css">
+</head>
+<body>
+    <div class="lesson-container">
+        <div class="lesson-meta">
+            <strong>课程 0003</strong> | 预计时间：25 分钟 | 难度：⭐⭐⭐⭐☆
+        </div>
+
+        <h1>课程 3：SSD Promotion 读路径与零拷贝传输</h1>
+
+        <div class="callout callout-info">
+            <div class="callout-title">🎯 学习目标</div>
+            在本课结束时，你将能够：
+            <ul style="margin-top: 10px;">
+                <li>描述 SSD → Remote DRAM 的完整 promotion 流程（6 个步骤）</li>
+                <li>理解三方协作模式：Requesting Client、Target Client、Master</li>
+                <li>解释 ClientBuffer 的作用和生命周期管理</li>
+                <li>识别读路径中的性能关键点</li>
+                <li>对比 offload (写) 和 promotion (读) 的差异</li>
+            </ul>
+        </div>
+
+        <h2>触发场景</h2>
+
+        <p>Promotion（提升）发生在以下情况：</p>
+
+        <div class="callout callout-warning">
+            <div class="callout-title">⚠️ Cache Miss 场景</div>
+            <strong>典型流程：</strong><br>
+            1. Decode worker 需要某个 KV Cache 对象<br>
+            2. 在 GPU VRAM 中未找到 → 查询 Host DRAM<br>
+            3. 在 Host DRAM 中未找到 → 查询 Remote DRAM Pool<br>
+            4. 在 Remote DRAM 中未找到 → 查询 Master<br>
+            5. Master 返回：<strong>"这个对象在 SSD 上"</strong><br>
+            6. 触发 Promotion：SSD → Remote DRAM → Host DRAM → GPU VRAM
+        </div>
+
+        <h2>三方协作架构</h2>
+
+        <p>与 offload 不同，promotion 涉及三个角色的协作：</p>
+
+        <div style="background: #f8f9fa; color: #2c3e50; padding: 20px; border-radius: 6px; font-family: 'Courier New', monospace; white-space: pre; overflow-x: auto; margin: 1.5em 0;">┌─────────────────────────────────────────────────────────────┐
+│  角色 1: Requesting Client (请求者)                          │
+│  • Decode worker 所在的节点                                 │
+│  • 需要 KV Cache 数据                                       │
+│  • 发起 Get 请求                                            │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            │ ① BatchGet(keys)
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  角色 2: Master Service (协调者)                             │
+│  • 维护对象元数据                                           │
+│  • 知道数据在哪个节点的 SSD                                  │
+│  • 返回 LOCAL_DISK replica 信息                             │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            │ ② Replica info: {type: LOCAL_DISK,
+                            │                  rpc_addr: "10.0.0.5:12345"}
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  角色 3: Target Client (SSD 拥有者)                          │
+│  • 实际拥有 SSD 数据的节点                                   │
+│  • 从 SSD 读取到 staging buffer                             │
+│  • 通过 Transfer Engine 零拷贝传输                           │
+└─────────────────────────────────────────────────────────────┘</div>
+
+        <h2>完整的 Promotion 流程</h2>
+
+        <h3>步骤 1：Cache Miss 检测</h3>
+
+        <pre><code>// Requesting Client (decode worker)
+auto result = client_->Get(key, target_slices);
+
+if (result.error() == ErrorCode::NOT_FOUND) {
+    // 在内存中未找到，查询 Master
+    auto replica_list = client_->BatchGet(keys);
+}</code></pre>
+
+        <h3>步骤 2：Master 返回 SSD 副本信息</h3>
+
+        <pre><code>// Master Service 响应
+QueryResult {
+    replicas: [
+        {
+            type: ReplicaType::LOCAL_DISK,
+            transport_endpoint: "10.0.0.5:12345",  // Target Client RPC 地址
+            metadata: { ... }
+        }
+    ]
+}</code></pre>
+
+        <div class="callout callout-tip">
+            <div class="callout-title">✅ 关键设计</div>
+            Master 不参与数据传输！它只返回"去哪里找数据"，实际传输由 Client 之间直接完成。<br>
+            这是典型的<strong>控制平面 / 数据平面分离</strong>设计。
+        </div>
+
+        <h3>步骤 3：RPC 请求 Target Client</h3>
+
+        <p>Requesting Client 向 Target Client 发起 RPC：</p>
+
+        <pre><code>// Requesting Client
+auto response = target_client_rpc->batch_get_offload_object(
+    keys,           // 需要的对象列表
+    sizes,          // 每个对象的大小
+    timeout_ms      // 超时时间
+);</code></pre>
+
+        <h3>步骤 4：Target Client 从 SSD 读取</h3>
+
+        <p>Target Client 收到请求后，执行以下操作：</p>
+
+        <pre><code>// file_storage.cpp:723-793
+// (a) 分配 ClientBuffer staging 空间
+std::vector&lt;std::string&gt; single_key{storage_key};
+std::vector&lt;int64_t&gt; single_size{size};
+auto allocate_res = AllocateBatch(single_key, single_size);
+auto staging = allocate_res.value();
+
+// (b) 从 SSD 读取到 ClientBuffer
+auto load_res = BatchLoad(staging->slices);
+
+// BatchLoad 内部使用 BucketStorageBackend
+// storage_backend.cpp:397
+auto read_result = file->vector_read(
+    aligned_buffer, aligned_size, aligned_offset);
+
+// 使用 io_uring 批量读取
+// uring_file.cpp:611
+io_uring_prep_readv(sqe, fd, iov, iovcnt, offset);
+io_uring_submit_and_wait(ring, batch);</code></pre>
+
+        <h3>ClientBuffer 的作用</h3>
+
+        <div class="interactive-section">
+            <h3>🎨 ClientBuffer 架构</h3>
+            <div style="background: #f8f9fa; color: #2c3e50; padding: 20px; border-radius: 6px; font-family: 'Courier New', monospace; white-space: pre; overflow-x: auto;">┌─────────────────────────────────────────────────────────────┐
+│  ClientBuffer (Target Client 的 staging area)               │
+│                                                              │
+│  • 预先分配的内存区域（例如 20GB）                            │
+│  • 预先注册到 Transfer Engine（一次注册，多次使用）          │
+│  • O_DIRECT 对齐（4KB）                                      │
+│  • 支持并发：多个 batch 可以同时占用不同的 slot               │
+│                                                              │
+│  ┌───────────────┬───────────────┬───────────────┐           │
+│  │  Slot 1       │  Slot 2       │  Slot 3       │           │
+│  │  (8GB)        │  (8GB)        │  (4GB)        │           │
+│  │  batch_id=101 │  batch_id=102 │  (free)       │           │
+│  └───────────────┴───────────────┴───────────────┘           │
+│                                                              │
+│  生命周期管理：                                              │
+│  • Allocate: 分配 slot，返回 batch_id                       │
+│  • Use: Transfer Engine 通过 RDMA 读取数据                  │
+│  • Release: 显式释放，或 GC 超时回收                         │
+└─────────────────────────────────────────────────────────────┘</div>
+        </div>
+
+        <p><strong>为什么需要 ClientBuffer？</strong></p>
+
+        <ul>
+            <li><strong>零拷贝传输</strong>：预注册到 Transfer Engine，RDMA 可以直接访问</li>
+            <li><strong>O_DIRECT 对齐</strong>：满足 SSD 的 4KB 对齐要求</li>
+            <li><strong>并发支持</strong>：多个 promotion 请求可以并行处理</li>
+            <li><strong>生命周期隔离</strong>：每个 batch 有独立的 TTL，互不干扰</li>
+        </ul>
+
+        <h3>步骤 5：返回 Staging Buffer 地址</h3>
+
+        <p>Target Client 返回响应给 Requesting Client：</p>
+
+        <pre><code>BatchGetOffloadObjectResponse {
+    batch_id: 101,                          // 用于后续释放
+    pointers: [0x7f1234000000, ...],        // ClientBuffer 中的地址
+    transfer_engine_addr: "10.0.0.5:9000",  // Transfer Engine 监听地址
+    gc_ttl_ms: 30000                        // 30 秒后自动 GC
+}</code></pre>
+
+        <div class="try-it">
+            <div class="try-it-title">🤔 思考题</div>
+            为什么需要 <code>gc_ttl_ms</code>？如果 Requesting Client 崩溃了会发生什么？
+            <details style="margin-top: 10px;">
+                <summary>点击查看答案</summary>
+                <p style="margin-top: 10px;"><strong>容错机制：</strong><br>
+                如果 Requesting Client 在传输完成前崩溃：<br>
+                • 它不会调用 <code>release_offload_buffer()</code><br>
+                • ClientBuffer 的 slot 会一直被占用<br>
+                • GC 线程会在 30 秒后自动释放这个 slot<br>
+                • 避免资源泄漏<br><br>
+                这是一个经典的<strong>lease 机制</strong>：时间到期自动回收。</p>
+            </details>
+        </div>
+
+        <h3>步骤 6：Transfer Engine 零拷贝传输</h3>
+
+        <p>Requesting Client 使用 Transfer Engine 拉取数据：</p>
+
+        <pre><code>// Requesting Client
+auto transfer_result = client_->BatchGetOffloadObject(
+    transfer_engine_addr,   // "10.0.0.5:9000"
+    keys,                   // 对象列表
+    pointers,               // ClientBuffer 中的地址
+    target_slices           // 本地目标内存
+);
+
+// Transfer Engine 内部使用 RDMA
+// rdma_transport.cpp
+ibv_post_send(qp, &wr, &bad_wr);  // RDMA Read
+// 从 Target Client 的 ClientBuffer 直接读取到 Requesting Client 的内存
+// 零拷贝，无 CPU 参与
+
+// 传输完成后立即释放 ClientBuffer
+target_client_rpc->release_offload_buffer(batch_id);</code></pre>
+
+        <h3>步骤 7：提升到 Remote DRAM</h3>
+
+        <p>数据传输到 Requesting Client 后，还需要在 Remote DRAM Pool 中创建副本：</p>
+
+        <pre><code>// file_storage.cpp:770-793
+// (a) 在 Remote DRAM Pool 中分配空间
+auto alloc_result = client_->PromotionAllocStart(key, size, config);
+
+// (b) 将 staging 数据写入 Remote DRAM
+ErrorCode write_err = client_->PromotionWrite(
+    alloc_result.value().memory_descriptor, tx_slices);
+
+// (c) 通知 Master 提升成功
+auto notify_res = client_->NotifyPromotionSuccess(key, tenant_id);</code></pre>
+
+        <div class="callout callout-success">
+            <div class="callout-title">✅ 完成！</div>
+            现在对象有两个副本：<br>
+            • <strong>SSD 副本</strong>（保留，供未来可能的访问）<br>
+            • <strong>Remote DRAM 副本</strong>（新创建，供后续快速访问）<br><br>
+            后续对同一对象的访问会命中 Remote DRAM（50-100μs），而不是 SSD（1-5ms）。
+        </div>
+
+        <h2>性能分析</h2>
+
+        <h3>延迟分解</h3>
+
+        <table>
+            <tr>
+                <th>步骤</th>
+                <th>延迟</th>
+                <th>说明</th>
+            </tr>
+            <tr>
+                <td>Master 查询</td>
+                <td>~100 μs</td>
+                <td>RPC 往返，查询元数据</td>
+            </tr>
+            <tr>
+                <td>Target Client RPC</td>
+                <td>~50 μs</td>
+                <td>发起 batch_get_offload_object</td>
+            </tr>
+            <tr>
+                <td>SSD 读取</td>
+                <td><strong>1-5 ms</strong></td>
+                <td>主要瓶颈！</td>
+            </tr>
+            <tr>
+                <td>RDMA 传输</td>
+                <td>50-100 μs</td>
+                <td>零拷贝，取决于数据大小</td>
+            </tr>
+            <tr>
+                <td>Remote DRAM 写入</td>
+                <td>~100 μs</td>
+                <td>RDMA Write</td>
+            </tr>
+            <tr>
+                <td><strong>总计</strong></td>
+                <td><strong>~2-6 ms</strong></td>
+                <td>SSD 读取占主导</td>
+            </tr>
+        </table>
+
+        <div class="callout callout-danger">
+            <div class="callout-title">🎯 AI SSD 的优化目标</div>
+            <strong>SSD 读取延迟（1-5ms）是整个 promotion 路径的主要瓶颈</strong><br><br>
+            对于 AI SSD 设计：<br>
+            • P99 延迟比平均延迟更重要（避免长尾延迟）<br>
+            • 预读策略：Bucket 聚合导致可能读取 256MB，但实际只需要其中几个对象<br>
+            • 队列深度：io_uring 可能批量提交 32 个读请求，SSD 需要支持高 QD
+        </div>
+
+        <h3>带宽利用</h3>
+
+        <p>FAST'25 论文中的实测数据（RAID0 配置）：</p>
+
+        <ul>
+            <li><strong>顺序读取</strong>：~27 GB/s（4 × NVMe，接近饱和）</li>
+            <li><strong>io_uring 批量</strong>：QD=32 时带宽最优</li>
+            <li><strong>RDMA 传输</strong>：~87 GB/s（4 × 200 Gbps）</li>
+        </ul>
+
+        <p><strong>瓶颈分析</strong>：RDMA 带宽 > SSD 带宽，所以 SSD 是瓶颈。</p>
+
+        <h2>Offload vs Promotion 对比</h2>
+
+        <table>
+            <tr>
+                <th>维度</th>
+                <th>Offload (写)</th>
+                <th>Promotion (读)</th>
+            </tr>
+            <tr>
+                <td><strong>触发方式</strong></td>
+                <td>心跳轮询，批量</td>
+                <td>Cache miss，实时</td>
+            </tr>
+            <tr>
+                <td><strong>延迟要求</strong></td>
+                <td>低（后台异步）</td>
+                <td>高（阻塞请求）</td>
+            </tr>
+            <tr>
+                <td><strong>数据流向</strong></td>
+                <td>DRAM → SSD</td>
+                <td>SSD → Remote DRAM</td>
+            </tr>
+            <tr>
+                <td><strong>参与方</strong></td>
+                <td>Target Client + Master</td>
+                <td>Requesting Client + Target Client + Master</td>
+            </tr>
+            <tr>
+                <td><strong>零拷贝</strong></td>
+                <td>Host → SSD（DMA）</td>
+                <td>SSD → Host（DMA）<br>Host → Remote（RDMA）</td>
+            </tr>
+            <tr>
+                <td><strong>批处理</strong></td>
+                <td>心跳周期内累积</td>
+                <td>单次请求，但 io_uring 批量</td>
+            </tr>
+            <tr>
+                <td><strong>性能瓶颈</strong></td>
+                <td>写带宽（通常不是瓶颈）</td>
+                <td>读延迟（P99 很重要）</td>
+            </tr>
+        </table>
+
+        <h2>ClientBuffer 生命周期管理</h2>
+
+        <pre><code>// file_storage.cpp:204-218
+// 初始化：预注册到 Transfer Engine
+void FileStorage::Init() {
+    // 创建 ClientBuffer allocator
+    client_buffer_allocator_ = std::make_shared&lt;AlignedClientBufferAllocator&gt;(
+        config.local_buffer_size);
+    
+    // 注册到 io_uring（固定缓冲区优化）
+    if (config.use_uring) {
+        void* base_ptr = aligned_allocator->get_base_pointer();
+        size_t size = aligned_allocator->get_total_size();
+        UringFile::register_global_buffer(base_ptr, size);
+    }
+    
+    // 注册到 Transfer Engine（RDMA 零拷贝）
+    client_->RegisterLocalMemory(
+        client_buffer_allocator_->getBase(),
+        config.local_buffer_size,
+        kWildcardLocation, false, true);
+}
+
+// 分配：为 promotion 请求分配 slot
+auto staging = AllocateBatch(keys, sizes);
+// staging->slices 包含 ClientBuffer 中的地址
+
+// 使用：Transfer Engine 直接 RDMA 读取
+client_->BatchGetOffloadObject(addr, keys, pointers, target_slices);
+
+// 释放：显式释放或 GC 超时回收
+release_offload_buffer(batch_id);
+</code></pre>
+
+        <div class="try-it">
+            <div class="try-it-title">💡 代码阅读</div>
+            查看这些文件了解 ClientBuffer 的完整实现：<br>
+            • <code>mooncake-store/src/file_storage.cpp:204-218</code> - 初始化<br>
+            • <code>mooncake-store/src/file_storage.cpp:920-1020</code> - AllocateBatch<br>
+            • <code>mooncake-store/src/real_client.cpp:899-902</code> - Transfer Engine 注册<br><br>
+            思考：为什么 ClientBuffer 要同时注册到 io_uring 和 Transfer Engine？
+        </div>
+
+        <h2>对 AI SSD 设计的启示</h2>
+
+        <h3>1. 读延迟是关键路径</h3>
+
+        <p><strong>观察</strong>：Promotion 是同步操作，阻塞 decode worker</p>
+
+        <p><strong>AI SSD 应该</strong>：</p>
+        <ul>
+            <li>优化 P99 读延迟，而不仅仅是平均值</li>
+            <li>减少延迟抖动（jitter）</li>
+            <li>QoS 保障：读请求优先级高于后台写入</li>
+        </ul>
+
+        <h3>2. 智能预读与 Bucket</h3>
+
+        <p><strong>观察</strong>：读取一个对象可能需要加载整个 256MB bucket</p>
+
+        <p><strong>AI SSD 可以考虑</strong>：</p>
+        <ul>
+            <li>固件层预读：识别 bucket 访问模式</li>
+            <li>部分读取优化：如果只需要 bucket 中的一个对象，能否跳过其他部分？</li>
+            <li>SSD 内缓存：热门 bucket 的元数据常驻</li>
+        </ul>
+
+        <h3>3. 高队列深度支持</h3>
+
+        <p><strong>观察</strong>：io_uring 批量提交最多 32 个读请求</p>
+
+        <p><strong>AI SSD 应该</strong>：</p>
+        <ul>
+            <li>支持 QD=32 或更高而不降低单请求延迟</li>
+            <li>内部并行：多个 die/channel 并行处理</li>
+            <li>避免 head-of-line blocking</li>
+        </ul>
+
+        <h3>4. 与网络带宽匹配</h3>
+
+        <p><strong>观察</strong>：RDMA 带宽（87 GB/s）> SSD 带宽（27 GB/s）</p>
+
+        <p><strong>AI SSD 目标</strong>：</p>
+        <ul>
+            <li>读带宽至少 30 GB/s（匹配 PCIe Gen4 x16）</li>
+            <li>未来考虑 PCIe Gen5（~60 GB/s）</li>
+        </ul>
+
+        <h2>练习：追踪完整流程</h2>
+
+        <div class="interactive-section">
+            <h3>🧪 动手练习</h3>
+            <p>假设 Decode worker 需要 key="session_12345" 的 KV Cache，但在所有内存层都未命中。</p>
+            
+            <p><strong>任务</strong>：按顺序列出涉及的函数调用和数据移动</p>
+            
+            <ol>
+                <li>Decode worker 调用 ___________</li>
+                <li>Master 返回 ___________</li>
+                <li>Target Client 从 SSD 读取到 ___________</li>
+                <li>使用 ___________ 传输到 Requesting Client</li>
+                <li>最终写入 ___________</li>
+            </ol>
+            
+            <details>
+                <summary>查看答案</summary>
+                <ol style="margin-top: 10px;">
+                    <li><code>client_->BatchGet(["session_12345"])</code></li>
+                    <li><code>QueryResult{replicas: [LOCAL_DISK], rpc_addr: "..."}</code></li>
+                    <li><code>ClientBuffer staging area</code></li>
+                    <li><code>Transfer Engine RDMA</code></li>
+                    <li><code>Remote DRAM Pool</code>（通过 <code>PromotionWrite</code>）</li>
+                </ol>
+            </details>
+        </div>
+
+        <h2>小结</h2>
+
+        <p>今天你深入学习了 SSD Promotion 读路径：</p>
+
+        <ul>
+            <li>✅ <strong>三方协作</strong>：Requesting Client、Target Client、Master</li>
+            <li>✅ <strong>6 步流程</strong>：Cache miss → Master 查询 → RPC → SSD 读取 → RDMA 传输 → DRAM 写入</li>
+            <li>✅ <strong>ClientBuffer 机制</strong>：预注册 staging area，零拷贝传输</li>
+            <li>✅ <strong>性能特征</strong>：SSD 读延迟（1-5ms）是主要瓶颈</li>
+            <li>✅ <strong>与 Offload 对比</strong>：实时 vs 批量，延迟敏感 vs 吞吐优先</li>
+        </ul>
+
+        <p><strong>对 AI SSD 的核心启示</strong>：优化 P99 读延迟、高 QD 支持、智能预读</p>
+
+        <div class="callout callout-info">
+            <div class="callout-title">📚 推荐阅读</div>
+            <ul style="margin-top: 10px;">
+                <li><code>docs/source/design/ssd-offload.md</code> - Load 数据流详解</li>
+                <li><code>mooncake-store/src/file_storage.cpp:687-833</code> - ProcessPromotionTasks</li>
+                <li><code>mooncake-store/src/real_client.cpp:272-274</code> - PromotionWrite</li>
+                <li>FAST'25 论文 Figure 11: Promotion 性能分析</li>
+            </ul>
+        </div>
+
+        <div class="callout callout-tip">
+            <div class="callout-title">❓ 继续探索</div>
+            向你的 AI 教师提问：
+            <ul style="margin-top: 10px;">
+                <li>"ClientBuffer 的大小应该如何配置？"</li>
+                <li>"如果多个 Client 同时请求同一个 SSD 对象会发生什么？"</li>
+                <li>"Bucket 的部分读取优化是否值得？"</li>
+                <li>"创建下一课：io_uring 深度解析"</li>
+            </ul>
+        </div>
+
+        <div class="lesson-nav">
+            <a href="0002-ssd-offload-write-path.html" class="nav-link">← 上一课：SSD Offload 写路径</a>
+            <a href="0004-io-uring-deep-dive.html" class="nav-link">下一课：io_uring 深度解析 →</a>
+        </div>
+    </div>
+</body>
+</html>
