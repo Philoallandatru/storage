@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lesson 6: 从实验数据到 AI SSD 固件设计 - Mooncake</title>
+    <link rel="stylesheet" href="../assets/lesson-styles.css">
+</head>
+<body>
+    <div class="lesson-container">
+        <div class="lesson-meta">
+            <strong>课程 0006</strong> | 预计时间：40 分钟 | 难度：⭐⭐⭐⭐⭐
+        </div>
+
+        <h1>课程 6：从实验数据到 AI SSD 固件设计</h1>
+
+        <div class="callout callout-info">
+            <div class="callout-title">🎯 学习目标</div>
+            在本课结束时，你将能够：
+            <ul style="margin-top: 10px;">
+                <li>将复测报告精炼为 1-2 页 PPT</li>
+                <li>提取 I/O 模式的关键证据链</li>
+                <li>设计针对性的 AI SSD 固件方案</li>
+                <li>制定详细的实验验证配置</li>
+                <li>建立从数据到设计的逻辑推导</li>
+            </ul>
+        </div>
+
+        <h2>PPT 设计：两页框架</h2>
+
+        <h3>第 1 页：实验证据与 I/O 模式</h3>
+
+        <div style="background: #f8f9fa; color: #2c3e50; padding: 20px; border-radius: 6px; margin: 1.5em 0;">
+<strong>标题：Mooncake SSD Offload I/O 特征实测</strong>
+
+┌─────────────────────────────────────────────────────┐
+│ 左半部分：性能提升证据                              │
+│                                                     │
+│ 📊 Cache Hit Rate                                  │
+│    +Mooncake: 49.17% → +SSD: 69.80% (+42%)        │
+│                                                     │
+│ 📊 TTFT (ms)                                       │
+│    Baseline: 19,548 → +SSD: 16,363 (-16%)        │
+│                                                     │
+│ 📊 Input Throughput (tokens/s)                    │
+│    Baseline: 197 → +SSD: 235 (+19%)              │
+├─────────────────────────────────────────────────────┤
+│ 右半部分：I/O 模式量化                              │
+│                                                     │
+│ 💾 NVMe 读写比例: 70:30                           │
+│    Read: 4.58 GB | Write: 1.94 GB                │
+│                                                     │
+│ 📏 I/O 大小分布:                                   │
+│    256-512KB: 45% | 512KB-1MB: 30%               │
+│    1-4MB: 20% | >4MB: 5%                         │
+│                                                     │
+│ ⏱️ I/O 延迟 (P99):                                 │
+│    Read: 2.3ms | Write: 1.8ms                    │
+│                                                     │
+│ 🔄 队列深度: QD=1-8 (75%), QD=8-32 (25%)         │
+└─────────────────────────────────────────────────────┘
+
+<strong>关键发现（底部）：</strong>
+• 读多写少（70:30）→ 读优化优先
+• 中等 I/O 块（256KB-1MB）→ 非极端大小
+• 低-中队列深度 → 延迟敏感
+        </div>
+
+        <h3>第 2 页：AI SSD 固件设计方案</h3>
+
+        <div style="background: #f8f9fa; color: #2c3e50; padding: 20px; border-radius: 6px; margin: 1.5em 0;">
+<strong>标题：针对 Mooncake 工作负载的 AI SSD 固件优化</strong>
+
+┌─────────────────────────────────────────────────────┐
+│ 证据链 → 设计决策                                   │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│ 证据 1: 读写比 70:30                               │
+│ ↓                                                   │
+│ 固件设计: 非对称缓存                                │
+│  • 读缓存 (DRAM): 8GB                              │
+│  • 写缓冲 (SLC): 200GB                             │
+│  • QoS: 读请求优先级 > 写请求                      │
+│                                                     │
+├─────────────────────────────────────────────────────┤
+│ 证据 2: I/O 大小 256KB-1MB                         │
+│ ↓                                                   │
+│ 固件设计: 中粒度优化                                │
+│  • 预读窗口: 1MB                                   │
+│  • DMA 聚合阈值: 512KB                             │
+│  • 页分配单元: 256KB                               │
+│                                                     │
+├─────────────────────────────────────────────────────┤
+│ 证据 3: P99 延迟 2.3ms                             │
+│ ↓                                                   │
+│ 固件设计: 延迟优化路径                              │
+│  • 热点数据 → SLC (500μs)                         │
+│  • 冷数据 → TLC (2ms)                             │
+│  • GC 触发阈值: 空闲时间 > 10ms                   │
+│                                                     │
+├─────────────────────────────────────────────────────┤
+│ 证据 4: QD=1-8 占主导                              │
+│ ↓                                                   │
+│ 固件设计: 低延迟调度                                │
+│  • QD<4: 快速路径 (直接 SLC)                      │
+│  • QD>=4: 批量路径 (可 TLC)                       │
+│  • 避免 head-of-line blocking                     │
+└─────────────────────────────────────────────────────┘
+
+<strong>验证指标（底部）：</strong>
+• P99 读延迟 < 2ms | 读带宽 > 3GB/s | DWPD: 10-30
+        </div>
+
+        <h2>逻辑链路：证据 → 推理 → 设计</h2>
+
+        <h3>链路 1：读多写少 → 非对称架构</h3>
+
+        <table>
+            <tr>
+                <th>步骤</th>
+                <th>内容</th>
+            </tr>
+            <tr>
+                <td><strong>证据</strong></td>
+                <td>NVMe 读 4.58GB，写 1.94GB → 读写比 70:30</td>
+            </tr>
+            <tr>
+                <td><strong>推理</strong></td>
+                <td>传统 SSD 假设读写均衡（50:50），但 AI 工作负载读主导</td>
+            </tr>
+            <tr>
+                <td><strong>设计</strong></td>
+                <td>• 增大读缓存（8GB DRAM）<br>
+                    • 减少写缓存但保证足够 SLC (200GB)<br>
+                    • QoS: 读请求抢占写请求</td>
+            </tr>
+            <tr>
+                <td><strong>验证</strong></td>
+                <td>fio 测试：70% 读 + 30% 写混合，测量 P99 读延迟</td>
+            </tr>
+        </table>
+
+        <h3>链路 2：中等 I/O 块 → 优化粒度</h3>
+
+        <table>
+            <tr>
+                <th>步骤</th>
+                <th>内容</th>
+            </tr>
+            <tr>
+                <td><strong>证据</strong></td>
+                <td>I/O 大小分布：256-512KB (45%), 512KB-1MB (30%)</td>
+            </tr>
+            <tr>
+                <td><strong>推理</strong></td>
+                <td>不是 4KB 小块（数据库），也不是 256MB 超大块<br>
+                    → 中等粒度访问模式</td>
+            </tr>
+            <tr>
+                <td><strong>设计</strong></td>
+                <td>• FTL 映射粒度：256KB（vs 传统 4KB）<br>
+                    • 预读窗口：1MB（覆盖 75% 的 I/O）<br>
+                    • DMA 引擎：针对 512KB 优化传输</td>
+            </tr>
+            <tr>
+                <td><strong>验证</strong></td>
+                <td>fio 测试：bs=256k-1m 随机分布，测量吞吐量和延迟</td>
+            </tr>
+        </table>
+
+        <h3>链路 3：P99 延迟敏感 → 多层存储</h3>
+
+        <table>
+            <tr>
+                <th>步骤</th>
+                <th>内容</th>
+            </tr>
+            <tr>
+                <td><strong>证据</strong></td>
+                <td>实测 P99 读延迟 2.3ms，但 Mooncake 期望 < 2ms</td>
+            </tr>
+            <tr>
+                <td><strong>推理</strong></td>
+                <td>TLC 随机读：~2ms，SLC 随机读：~500μs<br>
+                    → 需要热点识别机制</td>
+            </tr>
+            <tr>
+                <td><strong>设计</strong></td>
+                <td>• 2 层缓存：SLC (500GB) + TLC (9.5TB)<br>
+                    • 热点检测：LRU + 访问频率<br>
+                    • 晋升阈值：2 次访问 within 10 分钟 → SLC<br>
+                    • 降级：30 分钟无访问 → TLC</td>
+            </tr>
+            <tr>
+                <td><strong>验证</strong></td>
+                <td>模拟 Zipf 分布访问，测量热点命中率和 P99 延迟</td>
+            </tr>
+        </table>
+
+        <h3>链路 4：低队列深度 → 延迟优先调度</h3>
+
+        <table>
+            <tr>
+                <th>步骤</th>
+                <th>内容</th>
+            </tr>
+            <tr>
+                <td><strong>证据</strong></td>
+                <td>QD=1-8 占 75%，QD=8-32 占 25%</td>
+            </tr>
+            <tr>
+                <td><strong>推理</strong></td>
+                <td>大部分请求是低并发（单个 promotion）<br>
+                    → 低延迟比高吞吐更重要</td>
+            </tr>
+            <tr>
+                <td><strong>设计</strong></td>
+                <td>• 双队列架构：<br>
+                      - 快速队列（QD<4）：优先调度，直接访问 SLC<br>
+                      - 批量队列（QD>=4）：延迟容忍，可访问 TLC<br>
+                    • 避免批量请求阻塞低延迟请求</td>
+            </tr>
+            <tr>
+                <td><strong>验证</strong></td>
+                <td>fio 混合：iodepth=1-4 (70%) + iodepth=16 (30%)<br>
+                    测量低 QD 请求的 P99 延迟</td>
+            </tr>
+        </table>
+
+        <h2>实验详细配置</h2>
+
+        <h3>配置 1：读写比例验证</h3>
+
+        <pre><code># fio 配置文件：read_write_ratio.fio
+[global]
+ioengine=io_uring
+direct=1
+runtime=600
+time_based=1
+norandommap=1
+randrepeat=0
+group_reporting=1
+
+[read-heavy]
+filename=/dev/nvme0n1
+rw=randrw
+rwmixread=70
+bs=512k
+iodepth=8
+numjobs=4
+
+# 验证指标
+# 1. 读延迟 P99 < 2ms
+# 2. 写延迟 P95 < 5ms (可容忍)
+# 3. 总吞吐量 > 3GB/s</code></pre>
+
+        <h3>配置 2：I/O 大小分布</h3>
+
+        <pre><code># fio 配置：io_size_distribution.fio
+[global]
+ioengine=io_uring
+direct=1
+runtime=300
+time_based=1
+
+[mixed-sizes]
+filename=/dev/nvme0n1
+rw=randread
+# 模拟分布：45% 256-512K, 30% 512K-1M, 25% >1M
+bssplit=256k/45:512k/30:1m/15:4m/10
+iodepth=8
+numjobs=2
+
+# 验证指标
+# 1. 各大小区间的平均延迟
+# 2. P99 延迟 < 2.5ms for all sizes
+# 3. 吞吐量随 I/O 大小的变化</code></pre>
+
+        <h3>配置 3：热点缓存效果</h3>
+
+        <pre><code># 使用 fio 的 zipf 分布
+[global]
+ioengine=io_uring
+direct=1
+runtime=600
+time_based=1
+
+[hotspot]
+filename=/dev/nvme0n1
+rw=randread
+bs=512k
+iodepth=4
+numjobs=4
+random_distribution=zipf:1.2  # Zipf 参数
+size=100g
+# 80% 访问集中在 20% 数据
+
+# 验证指标
+# 1. SLC 缓存命中率 > 80%
+# 2. 命中 SLC: P99 < 1ms
+# 3. 未命中 TLC: P99 ~2ms</code></pre>
+
+        <h3>配置 4：队列深度混合</h3>
+
+        <pre><code># 多个 job 模拟不同 QD
+[global]
+ioengine=io_uring
+direct=1
+runtime=300
+time_based=1
+filename=/dev/nvme0n1
+
+[low-qd-latency]
+rw=randread
+bs=512k
+iodepth=2
+numjobs=3
+# 代表 75% 的低 QD 请求
+
+[high-qd-throughput]
+rw=randread
+bs=1m
+iodepth=16
+numjobs=1
+# 代表 25% 的高 QD 请求
+
+# 验证指标
+# 1. low-qd job 的 P99 延迟不受 high-qd 影响
+# 2. low-qd: P99 < 2ms
+# 3. high-qd: 吞吐量 > 2GB/s</code></pre>
+
+        <h2>固件设计详细方案</h2>
+
+        <h3>模块 1：非对称缓存管理</h3>
+
+        <div style="background: #f8f9fa; color: #2c3e50; padding: 20px; border-radius: 6px; font-family: 'Courier New', monospace; white-space: pre; overflow-x: auto; margin: 1.5em 0;">
+读缓存层次结构：
+
+DRAM 读缓存 (8GB)
+    │
+    ├─ LRU 缓存：最近读取的数据
+    │  └─ 命中率目标：> 30%
+    │
+    └─ 预读缓冲：1MB 窗口
+       └─ 命中率目标：> 50%
+
+SLC 读缓存 (500GB)
+    │
+    ├─ 热点数据：2 次访问 within 10min
+    │  └─ 保留时间：30min 无访问
+    │
+    └─ 晋升队列：候选热点
+       └─ 降级队列：冷却数据
+
+写缓冲层次：
+
+SLC 写缓冲 (200GB)
+    │
+    ├─ 快速路径：QD < 4
+    │  └─ 目标延迟：< 500μs
+    │
+    └─ 批量路径：QD >= 4
+       └─ 后台刷新到 TLC
+        </div>
+
+        <h3>模块 2：QoS 调度算法</h3>
+
+        <pre><code>伪代码：
+
+class QoSScheduler {
+    Queue fast_queue;    // QD < 4, 延迟敏感
+    Queue batch_queue;   // QD >= 4, 吞吐优先
+    
+    Request schedule_next() {
+        // 优先级规则
+        if (!fast_queue.empty()) {
+            // 读请求 > 写请求
+            Request read_req = fast_queue.peek_read();
+            if (read_req && read_req.age() > 1ms) {
+                return fast_queue.pop();  // 紧急读
+            }
+        }
+        
+        // 批量队列：仅在快速队列空闲时处理
+        if (fast_queue.empty() && !batch_queue.empty()) {
+            return batch_queue.pop();
+        }
+        
+        // 默认返回快速队列
+        return fast_queue.pop();
+    }
+    
+    void submit(Request req) {
+        if (req.queue_depth < 4 || req.is_read()) {
+            fast_queue.push(req);
+        } else {
+            batch_queue.push(req);
+        }
+    }
+};</code></pre>
+
+        <h3>模块 3：热点检测与晋升</h3>
+
+        <pre><code>伪代码：
+
+class HotspotDetector {
+    HashMap<LBA, AccessRecord> access_map;
+    const int HOTSPOT_THRESHOLD = 2;
+    const Duration WINDOW = 10min;
+    
+    void on_read(LBA lba) {
+        auto& record = access_map[lba];
+        record.access_count++;
+        record.last_access = now();
+        
+        // 晋升到 SLC
+        if (record.access_count >= HOTSPOT_THRESHOLD &&
+            (now() - record.first_access) < WINDOW) {
+            promote_to_slc(lba);
+            record.in_slc = true;
+        }
+    }
+    
+    void gc_cycle() {
+        // 降级冷数据
+        for (auto& [lba, record] : access_map) {
+            if (record.in_slc &&
+                (now() - record.last_access) > 30min) {
+                demote_to_tlc(lba);
+                record.in_slc = false;
+            }
+        }
+    }
+};</code></pre>
+
+        <h2>验证实验路线图</h2>
+
+        <div class="interactive-section">
+            <h3>🔬 完整验证流程</h3>
+            
+            <h4>阶段 1：基线测试（1 周）</h4>
+            <ol>
+                <li>商用 SSD 基线性能测试</li>
+                <li>运行上述 4 个 fio 配置</li>
+                <li>记录 P50/P99/P999 延迟和吞吐量</li>
+            </ol>
+
+            <h4>阶段 2：固件原型（2 周）</h4>
+            <ol>
+                <li>实现非对称缓存（仅 DRAM 层）</li>
+                <li>实现 QoS 调度器</li>
+                <li>验证读优先策略有效性</li>
+            </ol>
+
+            <h4>阶段 3：SLC/TLC 分层（2 周）</h4>
+            <ol>
+                <li>实现热点检测算法</li>
+                <li>配置 500GB SLC + 9.5TB TLC</li>
+                <li>测量热点命中率和 P99 延迟</li>
+            </ol>
+
+            <h4>阶段 4：Mooncake 集成（1 周）</h4>
+            <ol>
+                <li>在 AI SSD 原型上运行 Mooncake</li>
+                <li>复现原始实验（8 clients, 8 rounds）</li>
+                <li>对比性能提升：TTFT、cache hit、吞吐量</li>
+            </ol>
+
+            <h4>关键指标</h4>
+            <table>
+                <tr>
+                    <th>指标</th>
+                    <th>目标值</th>
+                    <th>vs 基线</th>
+                </tr>
+                <tr>
+                    <td>P99 读延迟</td>
+                    <td>< 2ms</td>
+                    <td>-15%</td>
+                </tr>
+                <tr>
+                    <td>读带宽</td>
+                    <td>> 3GB/s</td>
+                    <td>+20%</td>
+                </tr>
+                <tr>
+                    <td>SLC 命中率</td>
+                    <td>> 80%</td>
+                    <td>N/A</td>
+                </tr>
+                <tr>
+                    <td>Mooncake TTFT</td>
+                    <td>< 15s</td>
+                    <td>-8%</td>
+                </tr>
+            </table>
+        </div>
+
+        <h2>常见问题</h2>
+
+        <div class="callout callout-warning">
+            <div class="callout-title">❓ Q1: 为什么选择 8GB DRAM 缓存？</div>
+            <strong>证据</strong>：实验中工作集约 6.5GB（4.58GB 读 + 1.94GB 写）<br>
+            <strong>推理</strong>：8GB 可覆盖完整工作集 + 预读缓冲<br>
+            <strong>权衡</strong>：更大的 DRAM 成本高，但命中率提升有限（边际递减）
+        </div>
+
+        <div class="callout callout-warning">
+            <div class="callout-title">❓ Q2: SLC 500GB 够用吗？</div>
+            <strong>证据</strong>：Zipf 分布下，20% 数据产生 80% 访问<br>
+            <strong>计算</strong>：10TB SSD × 20% = 2TB，但实际热点更集中<br>
+            <strong>推理</strong>：500GB 可容纳真正的热点（top 5%），命中率 > 80%
+        </div>
+
+        <div class="callout callout-warning">
+            <div class="callout-title">❓ Q3: 如何应对 DWPD 需求？</div>
+            <strong>实验数据</strong>：写入 1.94GB/run，假设 100 runs/天 = 194GB/天<br>
+            <strong>计算</strong>：194GB/10TB = ~0.02 DWPD（远低于之前估算的 80 DWPD）<br>
+            <strong>推理</strong>：本地测试环境写入量少，生产环境需要 × 100-500<br>
+            <strong>设计</strong>：预留 200GB SLC 写缓冲 + 30% OP，支持 10-30 DWPD
+        </div>
+
+        <h2>小结</h2>
+
+        <p>今天你学习了如何将实验数据转化为设计决策：</p>
+
+        <ul>
+            <li>✅ <strong>PPT 设计</strong>：2 页精炼核心证据和设计方案</li>
+            <li>✅ <strong>逻辑链路</strong>：证据 → 推理 → 设计 → 验证</li>
+            <li>✅ <strong>固件方案</strong>：非对称缓存、QoS 调度、热点检测</li>
+            <li>✅ <strong>实验配置</strong>：4 个 fio 场景 + Mooncake 集成</li>
+            <li>✅ <strong>验证路线</strong>：4 阶段，6 周完整验证</li>
+        </ul>
+
+        <p><strong>核心方法论</strong>：数据驱动设计，每个设计决策都有明确的证据链和验证方案。</p>
+
+        <div class="callout callout-tip">
+            <div class="callout-title">❓ 下一步</div>
+            向你的 AI 教师提问：
+            <ul style="margin-top: 10px;">
+                <li>"如何用 Python 自动生成这两页 PPT？"</li>
+                <li>"QoS 调度器的实现细节？"</li>
+                <li>"如何测量 SLC 命中率？"</li>
+                <li>"生产环境 DWPD 如何准确估算？"</li>
+            </ul>
+        </div>
+
+        <div class="lesson-nav">
+            <a href="0005-workload-trace-analysis.html" class="nav-link">← 上一课：工作负载 Trace 分析</a>
+            <span style="color: #999;">下一课：敬请期待</span>
+        </div>
+    </div>
+</body>
+</html>
