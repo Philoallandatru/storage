@@ -77,47 +77,57 @@ def setup_font() -> None:
 def plot_case(label: str, trace: dict[str, np.ndarray], out: Path) -> None:
     setup_font()
     sec = per_second(trace)
-    bg = "#070b18"
-    panel = "#101827"
-    grid = "#334155"
-    read_color = "#38bdf8"
-    write_color = "#fb7185"
+    # Light theme colors
+    bg = "#ffffff"
+    panel = "#f8f9fa"
+    grid = "#dee2e6"
+    text_color = "#212529"
+    read_color = "#0066cc"  # Deep blue for Read
+    write_color = "#dc3545"  # Red for Write
 
     fig, axes = plt.subplots(4, 1, figsize=(16, 13), sharex=False, facecolor=bg)
     for ax in axes:
         ax.set_facecolor(panel)
-        ax.grid(True, color=grid, alpha=0.3)
+        ax.grid(True, color=grid, alpha=0.5)
+        ax.tick_params(colors=text_color)
+        ax.spines['bottom'].set_color(grid)
+        ax.spines['top'].set_color(grid)
+        ax.spines['left'].set_color(grid)
+        ax.spines['right'].set_color(grid)
+        ax.xaxis.label.set_color(text_color)
+        ax.yaxis.label.set_color(text_color)
+        ax.title.set_color(text_color)
 
-    axes[0].plot(sec["time"], sec["r_iops"], color=read_color, label="读 IOPS")
-    axes[0].plot(sec["time"], sec["w_iops"], color=write_color, label="写 IOPS")
+    axes[0].plot(sec["time"], sec["r_iops"], color=read_color, linewidth=2, label="读 IOPS")
+    axes[0].plot(sec["time"], sec["w_iops"], color=write_color, linewidth=2, label="写 IOPS")
     axes[0].set_ylabel("events/s")
     axes[0].set_title("每秒读写 IOPS")
-    axes[0].legend(frameon=False)
+    axes[0].legend(frameon=True, facecolor='white', edgecolor=grid)
 
-    axes[1].plot(sec["time"], sec["r_gibs"], color=read_color, label="读 GiB/s")
-    axes[1].plot(sec["time"], sec["w_gibs"], color=write_color, label="写 GiB/s")
+    axes[1].plot(sec["time"], sec["r_gibs"], color=read_color, linewidth=2, label="读 GiB/s")
+    axes[1].plot(sec["time"], sec["w_gibs"], color=write_color, linewidth=2, label="写 GiB/s")
     axes[1].set_ylabel("GiB/s")
     axes[1].set_title("每秒读写带宽")
-    axes[1].legend(frameon=False)
+    axes[1].legend(frameon=True, facecolor='white', edgecolor=grid)
 
-    axes[2].fill_between(sec["time"], sec["read_pct"], color=read_color, alpha=0.35, label="读占比")
-    axes[2].plot(sec["time"], sec["read_pct"], color=read_color)
+    axes[2].fill_between(sec["time"], sec["read_pct"], color=read_color, alpha=0.3, label="读占比")
+    axes[2].plot(sec["time"], sec["read_pct"], color=read_color, linewidth=2)
     axes[2].set_ylim(0, 100)
     axes[2].set_ylabel("读占比 %")
     axes[2].set_title("每秒读写混合比例")
-    axes[2].legend(frameon=False)
+    axes[2].legend(frameon=True, facecolor='white', edgecolor=grid)
 
     n = len(trace["t_s"])
     max_points = 180_000
     step = max(1, n // max_points)
     idx = np.arange(0, n, step)
     r = trace["rw"][idx] == "R"
-    axes[3].scatter(trace["t_s"][idx][r], trace["lba_gib"][idx][r], s=1, color=read_color, alpha=0.22, label="读 LBA")
-    axes[3].scatter(trace["t_s"][idx][~r], trace["lba_gib"][idx][~r], s=1, color=write_color, alpha=0.35, label="写 LBA")
+    axes[3].scatter(trace["t_s"][idx][r], trace["lba_gib"][idx][r], s=1, color=read_color, alpha=0.5, label="读 LBA")
+    axes[3].scatter(trace["t_s"][idx][~r], trace["lba_gib"][idx][~r], s=1, color=write_color, alpha=0.6, label="写 LBA")
     axes[3].set_xlabel("时间 (s)")
     axes[3].set_ylabel("Host LBA (GiB)")
     axes[3].set_title("时间顺序上的 LBA 分布")
-    axes[3].legend(frameon=False, markerscale=6)
+    axes[3].legend(frameon=True, markerscale=6, facecolor='white', edgecolor=grid)
 
     r_events = int((trace["rw"] == "R").sum())
     w_events = int((trace["rw"] == "W").sum())
@@ -125,7 +135,7 @@ def plot_case(label: str, trace: dict[str, np.ndarray], out: Path) -> None:
     fig.suptitle(
         f"{label} block LBA 时间顺序读写分布 | {duration:.1f}s, R={r_events:,}, W={w_events:,}",
         fontsize=20,
-        color="#f8fafc",
+        color=text_color,
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=170, bbox_inches="tight")
