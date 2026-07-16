@@ -1,0 +1,302 @@
+[
+  {
+    "dirname": "gpu_only",
+    "label": "GPU only",
+    "timestamp": "2026-06-29T07:54:57.498167",
+    "summary": {
+      "total_requests": 64,
+      "request_rate": 8.0,
+      "average_prompt_len": 13827.5,
+      "average_output_len": 1.0,
+      "p90_prompt_len": 24583,
+      "p99_prompt_len": 24583,
+      "p90_output_len": 1,
+      "p99_output_len": 1,
+      "average_ttft": 4.887457593233762,
+      "p90_ttft": 11.967243161001534,
+      "p99_ttft": 12.46179855200171,
+      "median_ttft": 4.069199319994368,
+      "max_ttft": 12.46179855200171,
+      "average_itl": 0.0,
+      "p90_itl": 0.0,
+      "p99_itl": 0.0,
+      "median_itl": 0.0,
+      "max_itl": 0.0,
+      "average_latency": 4.887468761030846,
+      "p90_latency": 11.967253506001725,
+      "p99_latency": 12.461808234998898,
+      "median_latency": 4.069209301997034,
+      "max_latency": 12.461808234998898,
+      "input_token_throughput": 3600.5144830639306,
+      "output_token_throughput": 0.2603879575529872,
+      "throughput": 0.2603879575529872,
+      "cache_hit_rate": 0.04353643102513108
+    },
+    "rounds": {
+      "round_0": {
+        "average_ttft": 0.48632856124822865,
+        "cache_hit_rate": 0.0,
+        "request_count": 8
+      },
+      "round_1": {
+        "average_ttft": 1.1858177303756747,
+        "cache_hit_rate": 0.18746948738812041,
+        "request_count": 8
+      },
+      "round_2": {
+        "average_ttft": 1.9829931351259802,
+        "cache_hit_rate": 0.16663050553265352,
+        "request_count": 8
+      },
+      "round_3": {
+        "average_ttft": 3.432484933624437,
+        "cache_hit_rate": 0.09372711740297779,
+        "request_count": 8
+      },
+      "round_4": {
+        "average_ttft": 4.649269253000057,
+        "cache_hit_rate": 0.06352512366571206,
+        "request_count": 8
+      },
+      "round_5": {
+        "average_ttft": 6.755899269623114,
+        "cache_hit_rate": 0.0,
+        "request_count": 8
+      },
+      "round_6": {
+        "average_ttft": 9.014596021872421,
+        "cache_hit_rate": 0.0,
+        "request_count": 8
+      },
+      "round_7": {
+        "average_ttft": 11.592271841000183,
+        "cache_hit_rate": 0.0,
+        "request_count": 8
+      }
+    },
+    "evidence": {
+      "avg_read_mb_s": 10.74982142857143,
+      "avg_write_mb_s": 45.666269841269845,
+      "max_read_mb_s": 367.29,
+      "max_write_mb_s": 770.82,
+      "max_util_pct": 32.2,
+      "offload_file_count": 0,
+      "offload_du_gb": 0.0,
+      "input_length_errors": 0,
+      "storage_root_set_count": 0,
+      "storage_root_missing_count": 0,
+      "ssd_enabled_count": 0,
+      "offload_read_events": 0,
+      "read_store_events": 0,
+      "o_direct_events": 0,
+      "evict_trigger_events": 0,
+      "evict_done_events": 0,
+      "max_offload_key_count": 0,
+      "invalid_key_errors": 0,
+      "duplicate_key_errors": 0,
+      "insufficient_space_errors": 0,
+      "buffer_overflow_errors": 0,
+      "write_page_failures": 0
+    }
+  },
+  {
+    "dirname": "mooncake_only",
+    "label": "+Mooncake",
+    "timestamp": "2026-06-29T08:04:12.145493",
+    "summary": {
+      "total_requests": 64,
+      "request_rate": 8.0,
+      "average_prompt_len": 13827.5,
+      "average_output_len": 1.0,
+      "p90_prompt_len": 24583,
+      "p99_prompt_len": 24583,
+      "p90_output_len": 1,
+      "p99_output_len": 1,
+      "average_ttft": 4.150523665124979,
+      "p90_ttft": 9.836499761004234,
+      "p99_ttft": 12.706821371997648,
+      "median_ttft": 3.4441262879990973,
+      "max_ttft": 12.706821371997648,
+      "average_itl": 0.0,
+      "p90_itl": 0.0,
+      "p99_itl": 0.0,
+      "median_itl": 0.0,
+      "max_itl": 0.0,
+      "average_latency": 4.150534611453054,
+      "p90_latency": 9.836509280001337,
+      "p99_latency": 12.706832593001309,
+      "median_latency": 3.444135669997195,
+      "max_latency": 12.706832593001309,
+      "input_token_throughput": 3981.789303967944,
+      "output_token_throughput": 0.2879616202471845,
+      "throughput": 0.2879616202471845,
+      "cache_hit_rate": 0.23836557584523593
+    },
+    "rounds": {
+      "round_0": {
+        "average_ttft": 0.5337445868754003,
+        "cache_hit_rate": 0.0,
+        "request_count": 8
+      },
+      "round_1": {
+        "average_ttft": 0.7764545084974088,
+        "cache_hit_rate": 0.4999186330349878,
+        "request_count": 8
+      },
+      "round_2": {
+        "average_ttft": 0.9958799313753843,
+        "cache_hit_rate": 0.6665220221306141,
+        "request_count": 8
+      },
+      "round_3": {
+        "average_ttft": 2.797382636000293,
+        "cache_hit_rate": 0.28118135220893337,
+        "request_count": 8
+      },
+      "round_4": {
+        "average_ttft": 4.366922713001259,
+        "cache_hit_rate": 0.14996094766987764,
+        "request_count": 8
+      },
+      "round_5": {
+        "average_ttft": 5.413952069499828,
+        "cache_hit_rate": 0.2499322015512285,
+        "request_count": 8
+      },
+      "round_6": {
+        "average_ttft": 7.706509901000572,
+        "cache_hit_rate": 0.19042305904230591,
+        "request_count": 8
+      },
+      "round_7": {
+        "average_ttft": 10.613342974749685,
+        "cache_hit_rate": 0.10934385550990522,
+        "request_count": 8
+      }
+    },
+    "evidence": {
+      "avg_read_mb_s": 6.935625,
+      "avg_write_mb_s": 47.22457142857143,
+      "max_read_mb_s": 106.73,
+      "max_write_mb_s": 554.86,
+      "max_util_pct": 25.1,
+      "offload_file_count": 0,
+      "offload_du_gb": 0.0,
+      "input_length_errors": 0,
+      "storage_root_set_count": 0,
+      "storage_root_missing_count": 1,
+      "ssd_enabled_count": 0,
+      "offload_read_events": 0,
+      "read_store_events": 0,
+      "o_direct_events": 0,
+      "evict_trigger_events": 124,
+      "evict_done_events": 124,
+      "max_offload_key_count": 0,
+      "invalid_key_errors": 0,
+      "duplicate_key_errors": 0,
+      "insufficient_space_errors": 0,
+      "buffer_overflow_errors": 0,
+      "write_page_failures": 0
+    }
+  },
+  {
+    "dirname": "mooncake_ssd",
+    "label": "+Mooncake+SSD",
+    "timestamp": "2026-06-29T08:08:27.396708",
+    "summary": {
+      "total_requests": 64,
+      "request_rate": 8.0,
+      "average_prompt_len": 13827.5,
+      "average_output_len": 1.0,
+      "p90_prompt_len": 24583,
+      "p99_prompt_len": 24583,
+      "p90_output_len": 1,
+      "p99_output_len": 1,
+      "average_ttft": 3.435810746952825,
+      "p90_ttft": 8.006942057996639,
+      "p99_ttft": 9.180919643004017,
+      "median_ttft": 2.857565704995068,
+      "max_ttft": 9.180919643004017,
+      "average_itl": 0.0,
+      "p90_itl": 0.0,
+      "p99_itl": 0.0,
+      "median_itl": 0.0,
+      "max_itl": 0.0,
+      "average_latency": 3.4358218422338496,
+      "p90_latency": 8.00695240299683,
+      "p99_latency": 9.18092957400222,
+      "median_latency": 2.8575752839969937,
+      "max_latency": 9.18092957400222,
+      "input_token_throughput": 4469.94574029459,
+      "output_token_throughput": 0.32326492426646825,
+      "throughput": 0.32326492426646825,
+      "cache_hit_rate": 0.6776351473512927
+    },
+    "rounds": {
+      "round_0": {
+        "average_ttft": 0.5222262453735311,
+        "cache_hit_rate": 0.0,
+        "request_count": 8
+      },
+      "round_1": {
+        "average_ttft": 0.78074810850012,
+        "cache_hit_rate": 0.4999186330349878,
+        "request_count": 8
+      },
+      "round_2": {
+        "average_ttft": 1.026180901751104,
+        "cache_hit_rate": 0.6665220221306141,
+        "request_count": 8
+      },
+      "round_3": {
+        "average_ttft": 2.743191704623314,
+        "cache_hit_rate": 0.7498169392238223,
+        "request_count": 8
+      },
+      "round_4": {
+        "average_ttft": 5.884354656749565,
+        "cache_hit_rate": 0.799791720906014,
+        "request_count": 8
+      },
+      "round_5": {
+        "average_ttft": 5.075860504375669,
+        "cache_hit_rate": 0.7150837988826816,
+        "request_count": 8
+      },
+      "round_6": {
+        "average_ttft": 3.787029036874628,
+        "cache_hit_rate": 0.7914458391445839,
+        "request_count": 8
+      },
+      "round_7": {
+        "average_ttft": 7.6668948173746685,
+        "cache_hit_rate": 0.5708009600130172,
+        "request_count": 8
+      }
+    },
+    "evidence": {
+      "avg_read_mb_s": 29.207416267942584,
+      "avg_write_mb_s": 102.47748743718593,
+      "max_read_mb_s": 205.69,
+      "max_write_mb_s": 551.71,
+      "max_util_pct": 109.6,
+      "offload_file_count": 5402,
+      "offload_du_gb": 41.0,
+      "input_length_errors": 0,
+      "storage_root_set_count": 1,
+      "storage_root_missing_count": 0,
+      "ssd_enabled_count": 1,
+      "offload_read_events": 52,
+      "read_store_events": 52,
+      "o_direct_events": 1341,
+      "evict_trigger_events": 10475,
+      "evict_done_events": 10475,
+      "max_offload_key_count": 250,
+      "invalid_key_errors": 0,
+      "duplicate_key_errors": 3,
+      "insufficient_space_errors": 86,
+      "buffer_overflow_errors": 0,
+      "write_page_failures": 43
+    }
+  }
+]
